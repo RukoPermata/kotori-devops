@@ -11,6 +11,28 @@ export interface ChangelogEntry {
 // CURRENT_VERSION below always follows automatically.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.0.0",
+    date: "2026-10-15",
+    changes: {
+      id: [
+        "- Fitur Penuh Cadangkan & Pulihkan (Full Backup & Restore): amankan seluruh perpustakaan, bab, cover, posisi scroll bacaan presisi, dan pengaturan ke file kompresi .kotori.",
+        "- Pemilihan Novel Selektif: centang buku tertentu yang ingin dicadangkan atau dipulihkan dengan tombol Pilih Semua / Batal Pilih.",
+        "- Perbandingan Progres Cerdas: pratinjau detail posisi bab & persentase bacaan antara perpustakaan lokal dan data cadangan sebelum pemulihan.",
+        "- Proteksi Progres Lokal: opsi cerdas untuk mempertahankan progres bacaan lokal yang posisinya lebih maju agar tidak tertimpa cadangan lama.",
+        "- Pengumuman Migrasi Domain: info resmi perpindahan domain ke kotori.kaisaaru.dev dengan tautan langsung.",
+        "- Penyempurnaan UI/UX: ikon SVG modern menggantikan emoji mentah, checkbox kustom selaras tema, dan perbaikan tampilan responsif di layar mobile.",
+      ],
+      en: [
+        "- Full Backup & Restore: safeguard your entire library, chapters, covers, exact reading scroll positions, and settings into a compressed .kotori archive.",
+        "- Selective Novel Backup/Restore: easily choose specific novels with individual checkboxes and Select All / Deselect All controls.",
+        "- Smart Progress Comparison: preview detailed chapter and percentage comparisons between your local library and backup data before restoring.",
+        "- Local Progress Safeguard: smart option to keep local reading progress if currently further ahead, preventing older backups from rolling it back.",
+        "- Domain Migration Notice: official notice for the move to kotori.kaisaaru.dev with direct links.",
+        "- UI/UX Refinements: clean modern SVG icons replacing raw emojis, custom themed checkboxes, and improved mobile responsive layouts.",
+      ],
+    },
+  },
+  {
     version: "0.4.2",
     date: "2026-09-13",
     changes: {
