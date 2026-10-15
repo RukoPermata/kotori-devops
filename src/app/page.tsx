@@ -25,6 +25,10 @@ import {
   Sparkles,
   MessageSquare,
   History,
+  HardDriveDownload,
+  HardDriveUpload,
+  Globe,
+  ExternalLink,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import {
@@ -56,6 +60,10 @@ const ChangeLogModal = dynamic(
 );
 const FeedbackModal = dynamic(
   () => import("@/components/FeedbackModal").then((m) => m.FeedbackModal),
+  { ssr: false }
+);
+const BackupModal = dynamic(
+  () => import("@/components/BackupModal").then((m) => m.BackupModal),
   { ssr: false }
 );
 
@@ -140,6 +148,12 @@ const TRANSLATIONS = {
     feedbackSuccess: "Terima kasih! Saran & kritik Anda telah terkirim kepada developer.",
     communityTitle: "Dukung Kotori",
     communityDesc: "Punya ide fitur baru, menemukan bug, atau sekadar ingin menyapa? Jangan ragu untuk mengirimkan saran Anda.",
+    domainNoticeTextBefore: "Kotori kini berpindah ke domain resmi",
+    domainNoticeLinkNew: "kotori.kaisaaru.dev",
+    domainNoticeTextMiddle: ". Jika masih ada progres buku di",
+    domainNoticeLinkOld: "readkotori.vercel.app",
+    domainNoticeTextAfter: ", silakan ekspor terlebih dahulu lalu impor di web ini.",
+    domainNoticeDismiss: "Tutup pemberitahuan",
   },
   EN: {
     subtitle: "Japanese Novel Reader",
@@ -197,6 +211,12 @@ const TRANSLATIONS = {
     feedbackSuccess: "Thank you! Your feedback has been sent to the developer.",
     communityTitle: "Support Kotori",
     communityDesc: "Have a feature idea, found a bug, or just want to say hi? Feel free to drop a message.",
+    domainNoticeTextBefore: "Kotori has moved to the official domain",
+    domainNoticeLinkNew: "kotori.kaisaaru.dev",
+    domainNoticeTextMiddle: ". If you have reading progress on",
+    domainNoticeLinkOld: "readkotori.vercel.app",
+    domainNoticeTextAfter: ", please export it first and import it here.",
+    domainNoticeDismiss: "Dismiss notice",
   },
 };
 
@@ -275,6 +295,9 @@ export default function HomePage() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showDictionarySearch, setShowDictionarySearch] = useState(false);
   const [showChangeLog, setShowChangeLog] = useState(false);
+  const [showBackupModal, setShowBackupModal] = useState(false);
+  const [showDomainNotice, setShowDomainNotice] = useState(false);
+  const [backupInitialTab, setBackupInitialTab] = useState<"export" | "import">("export");
 
   useEffect(() => {
     setIsLandscapeImg(false);
@@ -405,6 +428,11 @@ export default function HomePage() {
 
     const savedViewMode = localStorage.getItem("kotoba-view-mode") as "shelf" | "grid" | null;
     if (savedViewMode) setViewMode(savedViewMode);
+
+    const isDomainNoticeDismissed = localStorage.getItem("kotori-domain-notice-dismissed");
+    if (!isDomainNoticeDismissed) {
+      setShowDomainNotice(true);
+    }
   }, []);
 
   const handleLanguageChange = (lang: "ID" | "EN") => {
@@ -769,6 +797,91 @@ export default function HomePage() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* ===== Slim Domain Announcement Bar ===== */}
+      <aside
+        className="kb-domain-top-bar"
+        aria-label="Pemberitahuan Migrasi Domain"
+        style={{
+          backgroundColor: "var(--kb-primary-light)",
+          borderBottom: "1px solid rgba(99, 102, 241, 0.2)",
+          color: "var(--kb-text)",
+          position: "relative",
+          zIndex: 60,
+        }}
+      >
+        <div
+          className="kb-domain-inner"
+          style={{
+            maxWidth: "1280px",
+            margin: "0 auto",
+            padding: "8px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+          }}
+        >
+          <Globe
+            style={{
+              width: "15px",
+              height: "15px",
+              color: "var(--kb-primary)",
+              flexShrink: 0,
+              alignSelf: "flex-start",
+              marginTop: "2px",
+            }}
+          />
+          <div
+            className="kb-domain-message"
+            style={{
+              fontSize: "12px",
+              lineHeight: 1.5,
+              color: "var(--kb-text)",
+            }}
+          >
+            <span>
+              {t.domainNoticeTextBefore}{" "}
+              <a
+                href="https://kotori.kaisaaru.dev"
+                style={{
+                  color: "var(--kb-primary)",
+                  fontWeight: 800,
+                  textDecoration: "underline",
+                  textUnderlineOffset: "3px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "2px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span>{t.domainNoticeLinkNew}</span>
+                <ExternalLink style={{ width: "11px", height: "11px" }} />
+              </a>
+              {t.domainNoticeTextMiddle}{" "}
+              <a
+                href="https://readkotori.vercel.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: "var(--kb-primary)",
+                  fontWeight: 800,
+                  textDecoration: "underline",
+                  textUnderlineOffset: "3px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "2px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span>{t.domainNoticeLinkOld}</span>
+                <ExternalLink style={{ width: "11px", height: "11px" }} />
+              </a>
+              {t.domainNoticeTextAfter}
+            </span>
+          </div>
+        </div>
+      </aside>
+
       {/* ===== Header ===== */}
       <header
         style={{
@@ -930,6 +1043,34 @@ export default function HomePage() {
               aria-label="Change Log"
             >
               <History style={{ width: "16px", height: "16px" }} />
+            </button>
+
+            {/* Backup & Restore Button */}
+            <button
+              onClick={() => {
+                setBackupInitialTab("export");
+                setShowBackupModal(true);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "36px",
+                height: "36px",
+                borderRadius: "12px",
+                backgroundColor: "var(--kb-bg-secondary)",
+                color: "var(--kb-text)",
+                border: "1px solid var(--kb-border)",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--kb-surface-hover)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--kb-bg-secondary)")}
+              title={language === "ID" ? "Cadangkan & Pulihkan (Backup & Restore)" : "Backup & Restore Library"}
+              aria-label="Backup & Restore"
+            >
+              <HardDriveDownload style={{ width: "16px", height: "16px" }} />
             </button>
 
             {/* Feedback Button */}
@@ -1234,6 +1375,31 @@ export default function HomePage() {
               >
                 <History style={{ width: "18px", height: "18px", color: "var(--kb-primary)" }} />
                 <span>Change Log</span>
+              </button>
+
+              {/* Backup & Restore Action */}
+              <button
+                onClick={() => {
+                  setBackupInitialTab("export");
+                  setShowBackupModal(true);
+                  closeMobileMenu();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  padding: "12px 16px",
+                  borderRadius: "12px",
+                  backgroundColor: "var(--kb-bg-secondary)",
+                  border: "1px solid var(--kb-border)",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: "var(--kb-text)",
+                  cursor: "pointer",
+                }}
+              >
+                <HardDriveDownload style={{ width: "18px", height: "18px", color: "var(--kb-primary)" }} />
+                <span>{language === "ID" ? "Cadangkan & Pulihkan" : "Backup & Restore"}</span>
               </button>
 
               {/* Bahasa Section */}
@@ -1930,6 +2096,21 @@ export default function HomePage() {
         isOpen={showChangeLog}
         onClose={() => setShowChangeLog(false)}
         language={language}
+      />
+
+      {/* Backup & Restore Modal */}
+      <BackupModal
+        isOpen={showBackupModal}
+        onClose={() => setShowBackupModal(false)}
+        language={language}
+        totalBooks={books.length}
+        currentBooks={books}
+        currentProgresses={progresses}
+        initialTab={backupInitialTab}
+        onSuccessRestore={() => {
+          loadBooks();
+        }}
+        onToast={showToast}
       />
 
       {/* Delete Confirmation Modal */}

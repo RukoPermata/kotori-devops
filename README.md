@@ -6,9 +6,10 @@
 
 **Kotoba Reader AI** (Kotori): An All-in-One, Fast, and Immersive Platform for Reading Japanese Light Novels & Web Novels.
 
-<a href="https://readkotori.vercel.app" target="_blank" rel="noopener noreferrer"><strong>Live Demo: readkotori.vercel.app</strong></a>
+<a href="https://kotori.kaisaaru.dev" target="_blank" rel="noopener noreferrer"><strong>Official Domain: kotori.kaisaaru.dev</strong></a>
 
-<a href="https://readkotori.vercel.app" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Live_Demo-readkotori.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo" /></a>
+[![Official Domain](https://img.shields.io/badge/Official_Domain-kotori.kaisaaru.dev-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://kotori.kaisaaru.dev)
+[![Version](https://img.shields.io/badge/Version-v1.0.0-6366F1?style=for-the-badge)](package.json)
 [![Next.js](https://img.shields.io/badge/Next.js-16_App_Router-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -22,7 +23,7 @@
 
 ## Overview
 
-Kotoba Reader AI is purpose-built to deliver an authentic Japanese novel (*EPUB*) reading experience. It comes with an integrated Yomitan-style pop-up dictionary, grammar and Kanji breakdown tools, and high-accuracy Japanese Text-to-Speech.
+Kotoba Reader AI is purpose-built to deliver an authentic Japanese novel (*EPUB*) reading experience. It comes with an integrated Yomitan-style pop-up dictionary, grammar and Kanji breakdown tools, high-accuracy Japanese Text-to-Speech, and full offline library backup and restore.
 
 ---
 
@@ -50,13 +51,20 @@ Kotoba Reader AI is purpose-built to deliver an authentic Japanese novel (*EPUB*
 - **Server-Side Lookup**: Massive dictionary files (1 GB+ ZIP) are indexed and queried via the `/api/dictionary/lookup` API instead of loading them into the browser.
 - **Lightweight Client**: Keeps the browser's own memory footprint small, since dictionary data stays server-side rather than being held in page memory.
 
-### 6. Responsive Design & Immersive 3D Effects
+### 6. Full Library Backup & Restore (`.kotori`)
+- **Complete Library Portability**: Easily compress and export all novels, covers, chapters, reader settings, and exact reading progress into a portable `.kotori` archive.
+- **Precise Scroll Synchronization**: Preserves the exact paragraph and scroll percentage per chapter, letting you resume reading smoothly after restoring.
+- **Selective Backup & Restore**: Individual checkboxes allow backing up or restoring only selected novels, with *Select All / Deselect All* controls.
+- **Pre-Restore Inspection & Progress Comparison**: Preview summary stats and compare reading positions (`Local` vs `Backup`) before restoring data to IndexedDB.
+- **Smart Progress Safeguard**: Optional safeguard keeps newer local progress from being rolled back by older backups.
+
+### 7. Responsive Design & Immersive 3D Effects
 - **Adaptive Layout**: A tidy 2-column library view on mobile devices with an overlap-free toolbar.
 - **View Transitions API**: Smooth page transitions and a "flying book" effect.
 - **3D Preview Modal**: 3D preview animation (*rotateY* & *scale zoom*) when opening a novel from the shelf.
 
-### 7. Privacy & Offline Support
-- **Local Storage (IndexedDB)**: All EPUB files and reading progress are stored 100% in the user's local browser. No data is uploaded to any external server.
+### 8. Privacy & Offline Support
+- **Local Storage (IndexedDB)**: All EPUB files and reading progress are stored 100% in the user's local browser. No reading data is sent to external servers.
 
 ---
 
@@ -99,17 +107,21 @@ kotori/
 │   │   ├── layout.tsx      # Root Layout
 │   │   └── page.tsx        # Library / Home Page
 │   ├── components/
+│   │   ├── BackupModal.tsx         # Full backup & restore modal
+│   │   ├── DomainMigrationBar.tsx  # Permanent domain migration notice banner
 │   │   └── reader/
 │   │       ├── SelectionPopup.tsx      # Dictionary pop-up & TTS controls
 │   │       ├── ReaderSettingsPanel.tsx # Reading display options panel
 │   │       └── TableOfContents.tsx     # Novel chapter navigation
 │   ├── services/
+│   │   ├── backup-service.ts     # Library export/import & .kotori zip archive
 │   │   ├── book-storage.ts       # IndexedDB service for books & progress
 │   │   ├── dictionary-service.ts # Client lookup service & cache
 │   │   └── epub-parser.ts        # EPUB file parser & extractor
 │   ├── stores/
 │   │   └── reader-store.ts       # State management (Zustand)
 │   └── types/
+│       ├── backup.ts             # Backup & restore schema definitions
 │       └── book.ts               # TypeScript interfaces
 └── README.md
 ```

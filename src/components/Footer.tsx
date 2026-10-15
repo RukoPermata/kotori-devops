@@ -162,7 +162,23 @@ export function Footer({ language = "ID" }: FooterProps) {
             {t.copyright}
           </div>
           <div style={{ lineHeight: 1.6 }}>
-            {t.createdBy} <strong style={{ color: "var(--kb-text)" }}>@Kai</strong> {t.forLearners}
+            {t.createdBy}{" "}
+            <a
+              href="https://kaisaaru.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: "var(--kb-text)",
+                fontWeight: 700,
+                textDecoration: "none",
+                transition: "color 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--kb-primary)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--kb-text)")}
+            >
+              @Kaisaaru
+            </a>{" "}
+            {t.forLearners}
           </div>
         </div>
       </div>
