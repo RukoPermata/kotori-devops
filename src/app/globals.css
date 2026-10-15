@@ -1037,3 +1037,25 @@ body {
   }
 }
 
+/* ===== Slim Domain Announcement Bar ===== */
+.kb-domain-top-bar {
+  animation: fadeIn 0.25s ease-out;
+}
+
+.kb-domain-message {
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .kb-domain-top-bar .kb-domain-inner {
+    padding: 8px 12px !important;
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+  }
+  .kb-domain-message {
+    font-size: 11.5px !important;
+    line-height: 1.45 !important;
+    text-align: left !important;
+  }
+}
+
