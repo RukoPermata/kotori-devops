@@ -203,3 +203,73 @@ export async function getSettings(): Promise<ReaderSettings> {
   // before a newer ReaderSettings field existed doesn't leave that field undefined.
   return { ...DEFAULT_READER_SETTINGS, ...settings };
 }
+
+// ===== Full Backup & Restore Helpers =====
+
+export async function getAllChapters(): Promise<Chapter[]> {
+  const db = await getDB();
+  return db.getAll("chapters");
+}
+
+export async function getAllProgress(): Promise<ReadingProgress[]> {
+  const db = await getDB();
+  const list = await db.getAll("progress");
+  const byBookId = new Map<string, ReadingProgress>();
+  for (const p of list) {
+    byBookId.set(p.bookId, p);
+  }
+
+  // Merge localStorage mirrors in case an async IndexedDB write is pending or lost race with pagehide
+  if (typeof window !== "undefined") {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(PROGRESS_MIRROR_PREFIX)) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const mirrored = JSON.parse(raw) as ReadingProgress;
+            const existing = byBookId.get(mirrored.bookId);
+            if (!existing || mirrored.lastReadAt > existing.lastReadAt) {
+              byBookId.set(mirrored.bookId, mirrored);
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }
+
+  return Array.from(byBookId.values());
+}
+
+export async function restoreLibrary(data: {
+  books: BookMeta[];
+  chapters: Chapter[];
+  progress?: ReadingProgress[];
+  settings?: ReaderSettings;
+}): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(["books", "chapters", "progress", "settings"], "readwrite");
+  const bookStore = tx.objectStore("books");
+  const chapterStore = tx.objectStore("chapters");
+  const progressStore = tx.objectStore("progress");
+  const settingsStore = tx.objectStore("settings");
+
+  for (const book of data.books) {
+    await bookStore.put(book);
+  }
+  for (const ch of data.chapters) {
+    await chapterStore.put(ch);
+  }
+  if (data.progress) {
+    for (const prog of data.progress) {
+      await progressStore.put(prog);
+      saveProgressSync(prog);
+    }
+  }
+  if (data.settings) {
+    await settingsStore.put(data.settings, "reader");
+  }
+  await tx.done;
+}
