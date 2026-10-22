@@ -1,21 +1,23 @@
 import fs from "fs";
 import path from "path";
 import JSZip from "jszip";
-
+import { DatabaseSync } from "node:sqlite";
 // Blocks that are now extracted separately (extractExtras: example sentences, forms) or add no
 // reader value in a flat string (attribution links) - skipped here so they stop leaking into the
 // plain-text glossary, where they used to run together with no separator and get mangled by
 // formatMeaning's cleanup heuristics downstream (e.g. a sense-note's ";" getting misread as a
 // point separator, then the adjacent "forms" label text landing mid-sentence with nothing to mark
 // where the real definition ended).
-const FLATTEN_SKIP_MARKERS = new Set(["example-sentence", "forms", "attribution"]);
+const FLATTEN_SKIP_MARKERS = new Set(["example-sentence", "forms", "attribution", "part-of-speech-info"]);
 
 function parseStructuredNode(node) {
   if (!node) return "";
   if (typeof node === "string") return node;
   if (typeof node === "number") return String(node);
   if (Array.isArray(node)) {
-    return node.map(parseStructuredNode).filter(Boolean).join(" ");
+    const isList = node.some((n) => n && typeof n === "object" && n.tag === "li");
+    const sep = isList ? " • " : " ";
+    return node.map(parseStructuredNode).filter(Boolean).join(sep);
   }
   if (typeof node === "object") {
     if (node.data && FLATTEN_SKIP_MARKERS.has(node.data.content)) return "";
@@ -600,17 +602,15 @@ async function buildCache() {
   }
 
   // Ensure public and src/data directories exist
+  // Store dictionary cache in server-only data directory (never in public/ to prevent direct public download)
   const outputDirs = [
-    path.join(process.cwd(), "public"),
     path.join(process.cwd(), "src", "data"),
-    path.join(process.cwd(), ".next"),
   ];
 
   const payload = JSON.stringify({
     terms: Array.from(termMap.entries()),
     kanji: Array.from(kanjiMap.entries()),
   });
-
   for (const outDir of outputDirs) {
     try {
       if (!fs.existsSync(outDir)) {
@@ -619,11 +619,66 @@ async function buildCache() {
       const cachePath = path.join(outDir, "dict-cache-v1.json");
       fs.writeFileSync(cachePath, payload);
       console.log(`✅ Dictionary cache saved to ${cachePath}`);
+
+      // Generate SQLite database for instant sub-millisecond queries without in-memory parsing
+      const dbPath = path.join(outDir, "dict-v1.db");
+      const tempDbPath = path.join(outDir, "dict-v1.db.tmp");
+      if (fs.existsSync(tempDbPath)) fs.unlinkSync(tempDbPath);
+      const db = new DatabaseSync(tempDbPath);
+      db.exec("PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF; PRAGMA page_size = 4096;");
+      db.exec(`
+        CREATE TABLE terms (
+          expression TEXT PRIMARY KEY,
+          data TEXT NOT NULL
+        );
+        CREATE TABLE readings (
+          reading TEXT PRIMARY KEY,
+          expressions TEXT NOT NULL
+        );
+        CREATE TABLE kanji (
+          kanji TEXT PRIMARY KEY,
+          data TEXT NOT NULL
+        );
+      `);
+
+      const insertTerm = db.prepare("INSERT INTO terms (expression, data) VALUES (?, ?)");
+      const insertReading = db.prepare("INSERT INTO readings (reading, expressions) VALUES (?, ?)");
+      const insertKanji = db.prepare("INSERT INTO kanji (kanji, data) VALUES (?, ?)");
+
+      const readingMap = new Map();
+
+      db.exec("BEGIN TRANSACTION;");
+      for (const [expr, terms] of termMap.entries()) {
+        insertTerm.run(expr, JSON.stringify(terms));
+        for (const t of terms) {
+          if (t.reading && t.reading !== expr) {
+            let list = readingMap.get(t.reading);
+            if (!list) {
+              list = new Set();
+              readingMap.set(t.reading, list);
+            }
+            list.add(expr);
+          }
+        }
+      }
+
+      for (const [reading, exprSet] of readingMap) {
+        insertReading.run(reading, JSON.stringify(Array.from(exprSet)));
+      }
+
+      for (const [k, obj] of kanjiMap.entries()) {
+        insertKanji.run(k, JSON.stringify(obj));
+      }
+      db.exec("COMMIT;");
+      db.close();
+
+      if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+      fs.renameSync(tempDbPath, dbPath);
+      console.log(`✅ Dictionary SQLite database saved to ${dbPath}`);
     } catch (err) {
       console.warn(`Failed writing to ${outDir}:`, err);
     }
   }
-
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   console.log(`✨ Dictionary indexing complete in ${duration}s! Total Terms: ${termMap.size}, Total Kanji: ${kanjiMap.size}, Terms with frequency/pitch/example/forms: ${termsWithExtras}`);
 }

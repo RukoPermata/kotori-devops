@@ -2,13 +2,11 @@ export type DeinflectionRule = {
   ruleName: string;
   suffix: string;
   replacement: string;
-  type: string;
+  type?: string;
 };
 
 // Standard 五十音 (gojuon) sound-row table: the five vowel forms (a/i/u/e/o)
 // for each consonant, used below to derive Godan (u-verb) conjugation stems.
-// This is ordinary Japanese phonology found in any grammar reference, not
-// tied to any particular tool's internal rule set.
 const GOJUON_ROWS = {
   w: ["わ", "い", "う", "え", "お"],
   k: ["か", "き", "く", "け", "こ"],
@@ -23,9 +21,6 @@ const GOJUON_ROWS = {
 
 type GodanRow = keyof typeof GOJUON_ROWS;
 
-// Godan dictionary-form endings paired with their sound row and their
-// euphonic (onbin) class - the sound change that happens when a Godan stem
-// meets て/た (e.g. 買う -> 買って, 飲む -> 飲んで, 書く -> 書いた).
 const GODAN_ENDINGS: Array<{ ending: string; row: GodanRow; onbin: "small-tsu" | "n" | "i" | "shi" }> = [
   { ending: "う", row: "w", onbin: "small-tsu" },
   { ending: "つ", row: "t", onbin: "small-tsu" },
@@ -38,8 +33,6 @@ const GODAN_ENDINGS: Array<{ ending: string; row: GodanRow; onbin: "small-tsu" |
   { ending: "す", row: "s", onbin: "shi" },
 ];
 
-// て/た suffixes per euphonic class. ぐ is the one exception within the "i"
-// class: it voices to いで/いだ instead of いて/いた.
 const ONBIN_TE_TA: Record<"small-tsu" | "n" | "i" | "shi", [string, string]> = {
   "small-tsu": ["って", "った"],
   n: ["んで", "んだ"],
@@ -52,80 +45,134 @@ function buildGodanRules(): DeinflectionRule[] {
   const rules: DeinflectionRule[] = [];
 
   for (const { ending, row, onbin } of GODAN_ENDINGS) {
-    const [aRow, , , eRow, oRow] = GOJUON_ROWS[row];
+    const [aRow, iRow, , eRow, oRow] = GOJUON_ROWS[row];
     const [teSuffix, taSuffix] = ending === "ぐ" ? GU_TE_TA : ONBIN_TE_TA[onbin];
+    const taraSuffix = taSuffix + "ら";
+    const tariSuffix = taSuffix + "り";
 
     rules.push({ ruleName: "Volitional (Godan)", suffix: oRow + "う", replacement: ending, type: "volitional" });
     rules.push({ ruleName: "Negative (Godan)", suffix: aRow + "ない", replacement: ending, type: "negative" });
     rules.push({ ruleName: "Potential (Godan)", suffix: eRow + "る", replacement: ending, type: "potential" });
     rules.push({ ruleName: "Passive (Godan)", suffix: aRow + "れる", replacement: ending, type: "passive" });
+    rules.push({ ruleName: "Causative (Godan)", suffix: aRow + "せる", replacement: ending, type: "causative" });
+    rules.push({ ruleName: "Causative-Passive (Godan)", suffix: aRow + "される", replacement: ending, type: "causative-passive" });
+    rules.push({ ruleName: "Polite (Godan)", suffix: iRow + "ます", replacement: ending, type: "polite" });
+    rules.push({ ruleName: "Polite Past (Godan)", suffix: iRow + "ました", replacement: ending, type: "polite-past" });
+    rules.push({ ruleName: "Polite Neg (Godan)", suffix: iRow + "ません", replacement: ending, type: "polite-negative" });
     rules.push({ ruleName: "Te (Godan)", suffix: teSuffix, replacement: ending, type: "te" });
     rules.push({ ruleName: "Past (Godan)", suffix: taSuffix, replacement: ending, type: "past" });
+    rules.push({ ruleName: "Tara (Godan)", suffix: taraSuffix, replacement: ending, type: "tara" });
+    rules.push({ ruleName: "Tari (Godan)", suffix: tariSuffix, replacement: ending, type: "tari" });
+    rules.push({ ruleName: "Ba (Godan)", suffix: eRow + "ば", replacement: ending, type: "ba" });
   }
 
   return rules;
 }
 
 const ICHIDAN_RULES: DeinflectionRule[] = [
-  { ruleName: "Volitional (Ichidan)", suffix: "よう", replacement: "る", type: "volitional" }, // e.g. 食べよう -> 食べる
+  { ruleName: "Volitional (Ichidan)", suffix: "よう", replacement: "る", type: "volitional" },
   { ruleName: "Negative (Ichidan)", suffix: "ない", replacement: "る", type: "negative" },
-  { ruleName: "Potential (Ichidan)", suffix: "られる", replacement: "る", type: "potential" },
+  { ruleName: "Potential/Passive (Ichidan)", suffix: "られる", replacement: "る", type: "passive" },
+  { ruleName: "Causative (Ichidan)", suffix: "させる", replacement: "る", type: "causative" },
+  { ruleName: "Polite (Ichidan)", suffix: "ます", replacement: "る", type: "polite" },
+  { ruleName: "Polite Past (Ichidan)", suffix: "ました", replacement: "る", type: "polite-past" },
+  { ruleName: "Polite Neg (Ichidan)", suffix: "ません", replacement: "る", type: "polite-negative" },
   { ruleName: "Te (Ichidan)", suffix: "て", replacement: "る", type: "te" },
   { ruleName: "Past (Ichidan)", suffix: "た", replacement: "る", type: "past" },
+  { ruleName: "Tara (Ichidan)", suffix: "たら", replacement: "る", type: "tara" },
+  { ruleName: "Tari (Ichidan)", suffix: "たり", replacement: "る", type: "tari" },
+  { ruleName: "Ba (Ichidan)", suffix: "れば", replacement: "る", type: "ba" },
 ];
 
 const ADJECTIVE_RULES: DeinflectionRule[] = [
   { ruleName: "Adjective Past", suffix: "かった", replacement: "い", type: "past" },
   { ruleName: "Adjective Negative", suffix: "くない", replacement: "い", type: "negative" },
   { ruleName: "Adjective Negative Past", suffix: "くなかった", replacement: "い", type: "negative-past" },
+  { ruleName: "Adjective Adverbial", suffix: "く", replacement: "い", type: "adverbial" },
+  { ruleName: "Adjective Te", suffix: "くて", replacement: "い", type: "te" },
+  { ruleName: "Adjective Ba", suffix: "ければ", replacement: "い", type: "ba" },
 ];
 
-// Japanese verb/adjective de-inflection rules, derived from standard Godan
-// (u-verb) and Ichidan (ru-verb) conjugation grammar rather than any single
-// tool's rule table - see the gojuon table and onbin classes above for the
-// underlying linguistics. Allows reversing conjugated forms (e.g., 帰ろう ->
-// 帰る) back to their dictionary forms.
+const COLLOQUIAL_CONTRACTIONS: DeinflectionRule[] = [
+  { ruleName: "Contraction (chau)", suffix: "ちゃう", replacement: "る", type: "colloquial" },
+  { ruleName: "Contraction (chatta)", suffix: "ちゃった", replacement: "る", type: "colloquial" },
+  { ruleName: "Contraction (teru)", suffix: "てる", replacement: "る", type: "colloquial" },
+  { ruleName: "Contraction (teta)", suffix: "てた", replacement: "る", type: "colloquial" },
+  { ruleName: "Contraction (deru)", suffix: "でる", replacement: "ぶ", type: "colloquial" },
+  { ruleName: "Contraction (toku)", suffix: "とく", replacement: "る", type: "colloquial" },
+  { ruleName: "Contraction (toita)", suffix: "といた", replacement: "る", type: "colloquial" },
+  { ruleName: "Contraction (nakya)", suffix: "なきゃ", replacement: "ない", type: "colloquial" },
+  { ruleName: "Contraction (nakucha)", suffix: "なくちゃ", replacement: "ない", type: "colloquial" },
+];
+
 export const DEINFLECTION_RULES: DeinflectionRule[] = [
   ...buildGodanRules(),
   ...ICHIDAN_RULES,
   ...ADJECTIVE_RULES,
+  ...COLLOQUIAL_CONTRACTIONS,
 ];
 
 export type DeinflectionResult = {
   word: string;
-  rules: string[]; // e.g., ["past", "negative"]
+  rules: string[];
 };
 
 /**
- * Returns a list of possible dictionary base forms for a given conjugated word.
+ * Returns a list of possible dictionary base forms for a given conjugated word
+ * using breadth-first search de-inflection up to depth 2.
  * Always includes the original word as the first attempt.
  */
 export function getBaseForms(word: string): DeinflectionResult[] {
-  const results: DeinflectionResult[] = [{ word, rules: [] }]; // Original word
+  const results: DeinflectionResult[] = [{ word, rules: [] }];
+  const queue: Array<{ word: string; depth: number; rules: string[] }> = [
+    { word, depth: 0, rules: [] },
+  ];
+  const seen = new Set<string>([word]);
 
-  // Single-pass de-inflection (can be improved later to recursive for combinations like nai-katta)
-  for (const rule of DEINFLECTION_RULES) {
-    if (word.endsWith(rule.suffix) && word.length > rule.suffix.length) {
-      const baseForm = word.slice(0, -rule.suffix.length) + rule.replacement;
-      
-      // Avoid duplicate base forms, but merge rules if needed. 
-      // For simplicity in Phase 1, we just push all possibilities.
-      const exists = results.find(r => r.word === baseForm && r.rules.join(',') === [rule.ruleName].join(','));
-      if (!exists) {
-        results.push({
-          word: baseForm,
-          rules: [rule.ruleName],
-        });
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    if (curr.depth >= 2) continue;
+
+    for (const rule of DEINFLECTION_RULES) {
+      if (curr.word.endsWith(rule.suffix) && curr.word.length > rule.suffix.length) {
+        const baseForm = curr.word.slice(0, -rule.suffix.length) + rule.replacement;
+        if (!seen.has(baseForm)) {
+          seen.add(baseForm);
+          const newRules = [...curr.rules, rule.ruleName];
+          results.push({ word: baseForm, rules: newRules });
+          queue.push({ word: baseForm, depth: curr.depth + 1, rules: newRules });
+        }
       }
     }
   }
 
   // Common irregulars
-  if (word === "した" || word === "します" || word === "しよう" || word === "して") {
+  const irSuru = [
+    "した", "して", "します", "しました", "しない", "しよう",
+    "される", "させる", "させられる", "すれば", "したら", "しちゃう", "しちゃった"
+  ];
+  if (irSuru.includes(word) && !seen.has("する")) {
     results.push({ word: "する", rules: ["Irregular (suru)"] });
   }
-  if (word === "きた" || word === "きます" || word === "こよう" || word === "きて") {
+
+  const irKuru = [
+    "きた", "きて", "きます", "きました", "こない", "こよう",
+    "こられる", "こさせる", "くれば", "きたら", "きちゃう", "きちゃった"
+  ];
+  if (irKuru.includes(word) && !seen.has("来る")) {
     results.push({ word: "来る", rules: ["Irregular (kuru)"] });
+  }
+
+  if (
+    (word.startsWith("行っ") || word === "行かない" || word === "行こう" || word === "行ける" || word === "行けば") &&
+    !seen.has("行く")
+  ) {
+    results.push({ word: "行く", rules: ["Irregular (iku)"] });
+  }
+
+  if (["よかった", "よくない", "よくなかった", "よく", "よければ"].includes(word)) {
+    if (!seen.has("いい")) results.push({ word: "いい", rules: ["Irregular (ii)"] });
+    if (!seen.has("良い")) results.push({ word: "良い", rules: ["Irregular (ii)"] });
   }
 
   return results;
