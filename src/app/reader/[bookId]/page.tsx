@@ -36,189 +36,34 @@ import TableOfContents from "@/components/reader/TableOfContents";
 import { SelectionPopup } from "@/components/reader/SelectionPopup";
 import type { LookupResult } from "@/services/dictionary-service";
 import { getTextNodeAtPoint, extractContextChunk, getExplicitFurigana, getCharRect } from "@/lib/japanese/pointer-tokenizer";
+import {
+  extractTextAndFurigana,
+  findTextRange,
+  findNearestTextRects,
+  usesNegativeScrollLeft,
+  getPlainTextLength,
+} from "@/lib/reader/reader-helpers";
 
-// Helper to extract clean base text and explicit furigana from a selection container
-function extractTextAndFurigana(container: HTMLElement, range?: Range | null, selection?: Selection | null) {
-  let baseText = "";
-  let explicitFurigana = "";
-
-  try {
-    const clone = container.cloneNode(true) as HTMLElement;
-
-    // Extract explicit furigana from <rt> tags
-    const rtElements = clone.querySelectorAll("rt");
-    if (rtElements.length > 0) {
-      const furiganaParts: string[] = [];
-      rtElements.forEach((rt) => {
-        const text = rt.textContent?.trim();
-        if (text) furiganaParts.push(text);
-      });
-      explicitFurigana = furiganaParts.join("");
-    }
-
-    // Remove <rt> and <rp> elements to get clean base text
-    clone.querySelectorAll("rt, rp").forEach((el) => el.remove());
-    baseText = clone.textContent?.replace(/\s+/g, "").trim() || "";
-  } catch {
-    baseText = container.textContent?.replace(/\s+/g, "").trim() || "";
-  }
-
-  return {
-    baseText: baseText || (selection ? selection.toString().trim() : ""),
-    explicitFurigana,
-  };
-}
-
-// Helper to locate live DOM Range for target text substring inside content container
-function findTextRange(container: HTMLElement, targetText: string): Range | null {
-  if (!container || !targetText) return null;
-
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let currentNode: Node | null;
-
-  while ((currentNode = walker.nextNode())) {
-    const content = currentNode.textContent;
-    if (content && content.includes(targetText)) {
-      const startOffset = content.indexOf(targetText);
-      const range = document.createRange();
-      range.setStart(currentNode, startOffset);
-      range.setEnd(currentNode, startOffset + targetText.length);
-      return range;
-    }
-  }
-
-  // Fallback: search across multiple adjacent text nodes
-  const fullText = container.textContent || "";
-  const fullIndex = fullText.indexOf(targetText);
-  if (fullIndex === -1) return null;
-
-  let charCount = 0;
-  let startNode: Node | null = null;
-  let startOffset = 0;
-  let endNode: Node | null = null;
-  let endOffset = 0;
-
-  const walker2 = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  while ((currentNode = walker2.nextNode())) {
-    const textLen = currentNode.textContent?.length || 0;
-    if (!startNode && charCount + textLen > fullIndex) {
-      startNode = currentNode;
-      startOffset = fullIndex - charCount;
-    }
-    if (startNode && charCount + textLen >= fullIndex + targetText.length) {
-      endNode = currentNode;
-      endOffset = fullIndex + targetText.length - charCount;
-      break;
-    }
-    charCount += textLen;
-  }
-
-  if (startNode && endNode) {
-    const range = document.createRange();
-    range.setStart(startNode, startOffset);
-    range.setEnd(endNode, endOffset);
-    return range;
-  }
-
-  return null;
-}
-
-// Finds the occurrence of `targetText` whose position is closest to (nearLeft, nearTop) in viewport
-// coordinates, and returns its rects. findTextRange returns the FIRST match, which is fine for a
-// bookmarked sentence but wrong for a single dictionary word - short words like 良く recur many
-// times in a chapter, and the highlight would jump to the wrong one on every scroll.
-function findNearestTextRects(
-  container: HTMLElement,
-  targetText: string,
-  nearLeft: number,
-  nearTop: number
-): Array<{ left: number; top: number; width: number; height: number }> | null {
-  if (!targetText) return null;
-
-  let best: { dist: number; rects: DOMRect[] } | null = null;
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let node: Node | null;
-
-  while ((node = walker.nextNode())) {
-    const content = node.textContent;
-    if (!content) continue;
-    let from = content.indexOf(targetText);
-    while (from !== -1) {
-      try {
-        const range = document.createRange();
-        range.setStart(node, from);
-        range.setEnd(node, from + targetText.length);
-        const box = range.getBoundingClientRect();
-        const dist = Math.hypot(box.left - nearLeft, box.top - nearTop);
-        if (!best || dist < best.dist) {
-          best = { dist, rects: Array.from(range.getClientRects()) };
-        }
-        // Close enough that no other occurrence can be nearer - stop scanning the chapter.
-        if (dist < 2) break;
-      } catch {
-        // Skip an occurrence that cannot be ranged; others may still match.
-      }
-      from = content.indexOf(targetText, from + 1);
-    }
-    if (best && best.dist < 2) break;
-  }
-
-  if (!best) return null;
-  return best.rects.map((r) => ({
-    left: r.left,
-    top: r.top,
-    width: Math.max(r.width, 4),
-    height: Math.max(r.height, 4),
-  }));
-}
-
-// Temporary instrumentation for the reading-position save/restore path. Flip to false once the
-// restore behaviour has been confirmed working end to end.
+// Temporary instrumentation for reading-position save/restore path.
 const DEBUG_PROGRESS = false;
-
-// Detects at runtime whether this element's scrollLeft uses the negative range [-max, 0] or the
-// positive range [0, max]. Browsers disagree for writing-mode: vertical-rl, and getScrollPosition's
-// Math.abs() erases the distinction - so guessing the sign here has already caused several rounds
-// of "restore always lands at the chapter start", because an out-of-range write is silently
-// clamped to 0. Probing costs one synchronous reflow and removes the guess entirely, the way
-// ttu-reader's formatPos helper keeps its read and write paths symmetric.
-function usesNegativeScrollLeft(el: HTMLElement): boolean {
-  const original = el.scrollLeft;
-  el.scrollLeft = -1;
-  const isNegative = el.scrollLeft < 0;
-  el.scrollLeft = original;
-  return isNegative;
-}
-
-// Plain-text character count of a chapter's HTML (tags stripped) - used to weight book-wide
-// reading progress by actual chapter length instead of assuming every chapter is the same size.
-function getPlainTextLength(html: string): number {
-  if (typeof document === "undefined") return 0;
-  const el = document.createElement("div");
-  el.innerHTML = html;
-  return (el.textContent || "").length;
-}
-
 export default function ReaderPage() {
   const params = useParams();
   const router = useRouter();
   const bookId = params.bookId as string;
 
-  const {
-    book,
-    chapters,
-    currentChapterIndex,
-    settings,
-    isSettingsOpen,
-    isTocOpen,
-    showToolbar,
-    setBook,
-    setCurrentChapter,
-    setSettings,
-    setSettingsOpen,
-    setTocOpen,
-    setShowToolbar,
-  } = useReaderStore();
+  const book = useReaderStore((s) => s.book);
+  const chapters = useReaderStore((s) => s.chapters);
+  const currentChapterIndex = useReaderStore((s) => s.currentChapterIndex);
+  const settings = useReaderStore((s) => s.settings);
+  const isSettingsOpen = useReaderStore((s) => s.isSettingsOpen);
+  const isTocOpen = useReaderStore((s) => s.isTocOpen);
+  const showToolbar = useReaderStore((s) => s.showToolbar);
+  const setBook = useReaderStore((s) => s.setBook);
+  const setCurrentChapter = useReaderStore((s) => s.setCurrentChapter);
+  const setSettings = useReaderStore((s) => s.setSettings);
+  const setSettingsOpen = useReaderStore((s) => s.setSettingsOpen);
+  const setTocOpen = useReaderStore((s) => s.setTocOpen);
+  const setShowToolbar = useReaderStore((s) => s.setShowToolbar);
 
   // Polled by DictionaryPrewarmer in the root layout - null means "not known yet", not "not ready".
   const dictStatus = useDictionaryStore((s) => s.status);

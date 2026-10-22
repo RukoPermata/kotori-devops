@@ -22,9 +22,21 @@ export function DictionarySearchModal({ isOpen, onClose, language = "ID" }: Dict
   const [query, setQuery] = useState("");
   const [lookupData, setLookupData] = useState<LookupResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState<"dark" | "light" | "sepia">("dark");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      const activeTheme = document.documentElement.getAttribute("data-theme") as "dark" | "light" | "sepia" | null;
+      if (activeTheme === "light" || activeTheme === "dark" || activeTheme === "sepia") {
+        setCurrentTheme(activeTheme);
+        return;
+      }
+      const saved = localStorage.getItem("kotoba-theme") as "dark" | "light" | "sepia" | null;
+      if (saved) setCurrentTheme(saved);
+    }
+  }, [isOpen]);
   // Reset on every open so a stale query/result from the last session doesn't flash before typing.
   useEffect(() => {
     if (isOpen) {
@@ -144,17 +156,21 @@ export function DictionarySearchModal({ isOpen, onClose, language = "ID" }: Dict
           />
         </div>
 
-        {/* Results area - keeps the same dark-glass look as the reader's dictionary popup, so a
-            looked-up word reads identically whether it came from here or from tapping in a book. */}
+        {/* Results area - adapts seamlessly to current theme */}
         {query.trim() ? (
           <div
             style={{
               minHeight: "280px",
               maxHeight: "50vh",
               borderRadius: "16px",
-              backgroundColor: "rgba(15, 23, 42, 0.94)",
-              border: "1px solid rgba(255, 255, 255, 0.14)",
-              color: "#ffffff",
+              backgroundColor:
+                currentTheme === "light"
+                  ? "var(--kb-bg-secondary)"
+                  : currentTheme === "sepia"
+                  ? "var(--kb-bg-secondary)"
+                  : "rgba(15, 23, 42, 0.94)",
+              border: "1px solid var(--kb-border)",
+              color: "var(--kb-text)",
               padding: "16px",
               display: "flex",
               flexDirection: "column",
@@ -166,6 +182,7 @@ export function DictionarySearchModal({ isOpen, onClose, language = "ID" }: Dict
               selectedText={query.trim()}
               lookupData={lookupData}
               isLoading={isLoading}
+              theme={currentTheme}
               onClose={onClose}
             />
           </div>

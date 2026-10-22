@@ -27,96 +27,145 @@ interface SelectionPopupProps {
 //
 // Wide viewports dock the panel beside the word; narrow ones stack it below (or above) instead,
 // since there is no sideways room there and docking would cover the word being read.
-function computeLayout(anchor: { x: number; y: number; width: number; height: number }) {
+function getPopupThemeStyles(theme: "dark" | "light" | "sepia") {
+  if (theme === "light") {
+    return {
+      bg: "rgba(255, 255, 255, 0.98)",
+      border: "rgba(0, 0, 0, 0.12)",
+      shadow: "0 16px 40px rgba(0, 0, 0, 0.12)",
+      text: "#0f172a",
+      scrollThumb: "rgba(0, 0, 0, 0.2)",
+      scrollThumbHover: "rgba(0, 0, 0, 0.38)",
+    };
+  }
+  if (theme === "sepia") {
+    return {
+      bg: "rgba(244, 239, 228, 0.98)",
+      border: "rgba(120, 80, 40, 0.2)",
+      shadow: "0 16px 40px rgba(60, 40, 20, 0.16)",
+      text: "#2c1c0d",
+      scrollThumb: "rgba(61, 40, 23, 0.25)",
+      scrollThumbHover: "rgba(61, 40, 23, 0.45)",
+    };
+  }
+  return {
+    bg: "rgba(15, 23, 42, 0.96)",
+    border: "rgba(255, 255, 255, 0.14)",
+    shadow: "0 16px 48px rgba(0, 0, 0, 0.5)",
+    text: "#ffffff",
+    scrollThumb: "rgba(255, 255, 255, 0.22)",
+    scrollThumbHover: "rgba(255, 255, 255, 0.42)",
+  };
+}
+
+function computeLayout(
+  anchor: { x: number; y: number; width: number; height: number },
+  writingMode: "vertical" | "horizontal" = "vertical"
+) {
   const margin = 16;
-  const offset = 10;
-  const popupWidth = Math.min(400, window.innerWidth - margin * 2);
-  const maxPanelHeight = Math.min(280, window.innerHeight - margin * 2);
+  const offset = 12;
+  const popupWidth = Math.min(390, window.innerWidth - margin * 2);
+  const maxPanelHeight = Math.min(360, window.innerHeight - margin * 2);
 
   const anchorRight = anchor.x + anchor.width;
   const anchorBottom = anchor.y + anchor.height;
 
-  // Horizontal position:
-  // On narrow screens (mobile / narrow pane), center popup horizontally on the anchor
-  const isNarrow = window.innerWidth < popupWidth + anchor.width + margin * 2 + offset * 2;
   let left: number;
-  if (isNarrow) {
-    left = Math.max(
-      margin,
-      Math.min(
-        anchor.x + anchor.width / 2 - popupWidth / 2,
-        window.innerWidth - popupWidth - margin
-      )
-    );
-  } else {
-    // Wide screens: dock beside the word (right by preference, left if right lacks room)
-    const spaceRight = window.innerWidth - anchorRight;
-    const dockRight = spaceRight >= popupWidth + margin || spaceRight >= anchor.x;
-    left = dockRight
-      ? Math.min(anchorRight + offset, window.innerWidth - popupWidth - margin)
-      : Math.max(margin, anchor.x - popupWidth - offset);
-  }
-
-  // Vertical position:
-  // Calculate space available below and above the anchor
-  const spaceBelow = window.innerHeight - anchorBottom - offset - margin;
-  const spaceAbove = anchor.y - offset - margin;
-
   let top: number;
-  let panelHeight: number;
+  let panelHeight = maxPanelHeight;
 
-  if (spaceBelow >= 180) {
-    // Ample room below the anchor: dock below
-    panelHeight = Math.min(maxPanelHeight, spaceBelow);
-    top = anchorBottom + offset;
-  } else if (spaceAbove >= 180) {
-    // Ample room above the anchor: dock above
-    panelHeight = Math.min(maxPanelHeight, spaceAbove);
-    top = anchor.y - offset - panelHeight;
-  } else if (spaceAbove >= spaceBelow) {
-    // More room above than below: dock above and scale height to fit
-    panelHeight = Math.max(120, Math.min(maxPanelHeight, spaceAbove));
-    top = anchor.y - offset - panelHeight;
+  if (writingMode === "vertical") {
+    // Tategaki (Vertical): Text runs top-to-bottom, lines advance RIGHT to LEFT.
+    // Natural Yomitan placement: Dock to the LEFT of the vertical word column.
+    const spaceLeft = anchor.x - offset;
+    const spaceRight = window.innerWidth - anchorRight - offset;
+
+    if (spaceLeft >= popupWidth + margin) {
+      left = anchor.x - popupWidth - offset;
+    } else if (spaceRight >= popupWidth + margin) {
+      left = anchorRight + offset;
+    } else {
+      left = Math.max(margin, Math.min(anchor.x + anchor.width / 2 - popupWidth / 2, window.innerWidth - popupWidth - margin));
+    }
+
+    // Align vertically with the top of the word
+    top = anchor.y;
+    if (top + panelHeight > window.innerHeight - margin) {
+      top = Math.max(margin, window.innerHeight - margin - panelHeight);
+    }
+
+    // Narrow screens (cannot fit beside the column): stack below/above word
+    const isNarrow = spaceLeft < popupWidth + margin && spaceRight < popupWidth + margin;
+    if (isNarrow) {
+      const spaceBelow = window.innerHeight - anchorBottom - offset - margin;
+      const spaceAbove = anchor.y - offset - margin;
+      if (spaceBelow >= 180) {
+        panelHeight = Math.min(maxPanelHeight, spaceBelow);
+        top = anchorBottom + offset;
+      } else if (spaceAbove >= 180) {
+        panelHeight = Math.min(maxPanelHeight, spaceAbove);
+        top = anchor.y - offset - panelHeight;
+      } else {
+        panelHeight = Math.max(140, Math.min(maxPanelHeight, spaceBelow));
+        top = anchorBottom + offset;
+      }
+    }
   } else {
-    // More room below than above: dock below and scale height to fit
-    panelHeight = Math.max(120, Math.min(maxPanelHeight, spaceBelow));
-    top = anchorBottom + offset;
+    // Yokogaki (Horizontal): Text flows left-to-right, lines flow DOWNWARD.
+    // Center popup directly under (or above) the selected word
+    left = anchor.x + anchor.width / 2 - popupWidth / 2;
+
+    const spaceBelow = window.innerHeight - anchorBottom - offset - margin;
+    const spaceAbove = anchor.y - offset - margin;
+    if (spaceBelow >= 180) {
+      panelHeight = Math.min(maxPanelHeight, spaceBelow);
+      top = anchorBottom + offset;
+    } else if (spaceAbove >= 180) {
+      panelHeight = Math.min(maxPanelHeight, spaceAbove);
+      top = anchor.y - offset - panelHeight;
+    } else if (spaceBelow >= spaceAbove) {
+      panelHeight = Math.max(120, Math.min(maxPanelHeight, spaceBelow));
+      top = anchorBottom + offset;
+    } else {
+      panelHeight = Math.max(120, Math.min(maxPanelHeight, spaceAbove));
+      top = anchor.y - offset - panelHeight;
+    }
   }
 
-  // HARD VIEWPORT CLAMP: Ensure popup is 100% visible inside the viewport on all screens
-  if (top + panelHeight > window.innerHeight - margin) {
-    top = Math.max(margin, window.innerHeight - margin - panelHeight);
-  }
-  if (top < margin) {
-    top = margin;
-    panelHeight = Math.min(panelHeight, window.innerHeight - margin * 2);
-  }
+  // Hard clamp inside viewport
+  top = Math.max(margin, Math.min(top, window.innerHeight - panelHeight - margin));
   left = Math.max(margin, Math.min(left, window.innerWidth - popupWidth - margin));
 
   return { left, top, popupWidth, panelHeight };
 }
 
 export function SelectionPopup({ selectedText, explicitFurigana, position, chunkPos, onClose, onResolve }: SelectionPopupProps) {
+  const { settings } = useReaderStore();
+  const theme = settings?.theme || "dark";
+  const writingMode = settings?.writingMode || "vertical";
+  const ttsRate = settings?.ttsSpeed ?? 0.8;
+  const themeStyles = getPopupThemeStyles(theme);
+
   const [lookupData, setLookupData] = useState<LookupResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [layout, setLayout] = useState(() => computeLayout(position));
+  const [layout, setLayout] = useState(() => computeLayout(position, writingMode));
 
   // Reposition when a genuinely new word is looked up, and again when the reader refines the
   // anchor from the hovered character to the resolved word's full box (see onDictResolve) - that
   // second pass is what keeps the popup clear of the whole word in vertical text. `position` is
   // set once per lookup, so this does not jitter mid-lookup.
   useEffect(() => {
-    setLayout(computeLayout(position));
+    setLayout(computeLayout(position, writingMode));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedText, chunkPos, position]);
+  }, [selectedText, chunkPos, position, writingMode]);
 
   // Rotating a phone flips which side has room - and can flip the layout between the beside-the-word
   // and below-the-word arrangements entirely - so the placement has to be recomputed on resize.
   useEffect(() => {
-    const onResize = () => setLayout(computeLayout(position));
+    const onResize = () => setLayout(computeLayout(position, writingMode));
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [position]);
+  }, [position, writingMode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -136,9 +185,6 @@ export function SelectionPopup({ selectedText, explicitFurigana, position, chunk
   }, [selectedText, chunkPos]);
 
   // Audio pronunciation via Web Speech API uses the reader's ttsSpeed setting
-  const { settings } = useReaderStore();
-  const ttsRate = settings?.ttsSpeed ?? 0.8;
-
   if (!selectedText.trim()) return null;
 
   const { left, top, popupWidth, panelHeight } = layout;
@@ -154,23 +200,25 @@ export function SelectionPopup({ selectedText, explicitFurigana, position, chunk
         width: `${popupWidth}px`,
         height: `${panelHeight}px`,
         zIndex: 100,
-        borderRadius: "20px",
-        backgroundColor: "rgba(15, 23, 42, 0.94)",
+        borderRadius: "16px",
+        backgroundColor: themeStyles.bg,
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
-        border: "1px solid rgba(255, 255, 255, 0.14)",
-        boxShadow: "0 20px 48px rgba(0, 0, 0, 0.5)",
-        color: "#ffffff",
-        padding: "16px",
+        border: `1px solid ${themeStyles.border}`,
+        boxShadow: themeStyles.shadow,
+        color: themeStyles.text,
+        padding: "14px",
         display: "flex",
         flexDirection: "column",
-        gap: "12px",
+        gap: "10px",
         overflow: "hidden",
         animation: "fadeIn 0.12s ease-out",
         userSelect: "text",
         WebkitUserSelect: "text",
       }}
       onClick={(e) => e.stopPropagation()}
+      onWheel={(e) => e.stopPropagation()}
+      onTouchMove={(e) => e.stopPropagation()}
     >
       <DictionaryResults
         selectedText={selectedText}
@@ -179,6 +227,7 @@ export function SelectionPopup({ selectedText, explicitFurigana, position, chunk
         lookupData={lookupData}
         isLoading={isLoading}
         ttsRate={ttsRate}
+        theme={theme}
         onClose={onClose}
       />
     </div>

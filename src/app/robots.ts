@@ -1,13 +1,13 @@
 import type { MetadataRoute } from "next";
 
-const SITE_URL = "https://readkotori.vercel.app";
+const SITE_URL = "https://kotori.kaisaaru.dev";
 
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/api/", "/dict-cache-v1.json"],
+      disallow: ["/api/"],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,
   };

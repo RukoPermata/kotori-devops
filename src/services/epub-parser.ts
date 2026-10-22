@@ -269,11 +269,8 @@ export async function parseEpub(
       ],
     });
 
-    // If sanitization returned empty content, use rawHtml fallback
-    if (!htmlContent || htmlContent.trim() === "") {
-      htmlContent = rawHtml;
-    }
-
+    // Ensure content is strictly sanitized; never fall back to rawHtml
+    htmlContent = (htmlContent || "").trim();
     chapters.push({
       id: generateId(),
       bookId,

@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["lucide-react"],
   },
   outputFileTracingIncludes: {
-    "/api/**/*": ["./reference/**/*"],
+    "/api/**/*": ["./reference/**/*", "./src/data/**/*"],
   },
 };
 

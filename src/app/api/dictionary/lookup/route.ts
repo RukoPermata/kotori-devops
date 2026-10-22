@@ -3,30 +3,7 @@ import fs from "fs";
 import path from "path";
 import JSZip from "jszip";
 import { getBaseForms } from "@/lib/japanese/deinflector";
-
-interface ServerTerm {
-  dictName: string;
-  expression: string;
-  reading: string;
-  meanings: string[];
-  tags?: string[];
-  rules?: string;
-  score?: number;
-  jlpt?: string;
-  deinflectionRules?: string[];
-  example?: { japanese: string; translation: string };
-  forms?: string[];
-  frequency?: { dictName: string; rank: number; display: string }[];
-  pitchPosition?: number;
-}
-
-interface ServerKanji {
-  kanji: string;
-  onyomi: string[];
-  kunyomi: string[];
-  meanings: string[];
-  jlpt?: string;
-}
+import { dictionaryDb, type ServerTerm, type ServerKanji } from "@/services/dictionary-db";
 
 let isIndexBuilding = false;
 let isIndexReady = false;
@@ -49,35 +26,68 @@ function buildReadingIndex() {
   }
 }
 
+function getTerms(expr: string): ServerTerm[] | null {
+  if (dictionaryDb.isReady()) {
+    return dictionaryDb.getTerms(expr);
+  }
+  return termMap.get(expr) || null;
+}
+
+function hasTerm(expr: string): boolean {
+  if (dictionaryDb.isReady()) {
+    return dictionaryDb.hasTerm(expr);
+  }
+  return termMap.has(expr);
+}
+
+function getTermsByReading(reading: string): ServerTerm[] | null {
+  if (dictionaryDb.isReady()) {
+    return dictionaryDb.getTermsByReading(reading);
+  }
+  return readingMap.get(reading) || null;
+}
+
+function getKanji(char: string): ServerKanji | null {
+  if (dictionaryDb.isReady()) {
+    return dictionaryDb.getKanji(char);
+  }
+  return kanjiMap.get(char) || null;
+}
+
 // Blocks that add no value flattened into plain text (example sentences and forms aren't
 // extracted on this fallback path, but leaving them in the flat string is worse - they used to
 // run into the glossary text with no separator and get mangled by client-side cleanup heuristics).
-const FLATTEN_SKIP_MARKERS = new Set(["example-sentence", "forms", "attribution"]);
+const FLATTEN_SKIP_MARKERS = new Set(["example-sentence", "forms", "attribution", "part-of-speech-info"]);
 
 // Recursively parse Yomitan Structured Content AST into clean text
-function parseStructuredNode(node: any): string {
+function parseStructuredNode(node: unknown): string {
   if (!node) return "";
   if (typeof node === "string") return node;
   if (typeof node === "number") return String(node);
 
   if (Array.isArray(node)) {
-    return node.map(parseStructuredNode).filter(Boolean).join(" ");
+    const isList = node.some((n: unknown) => n && typeof n === "object" && "tag" in n && n.tag === "li");
+    const sep = isList ? " • " : " ";
+    return node.map(parseStructuredNode).filter(Boolean).join(sep);
   }
 
   if (typeof node === "object") {
-    if (node.data && FLATTEN_SKIP_MARKERS.has(node.data.content)) return "";
-    if (node.content) {
-      return parseStructuredNode(node.content);
+    const record = node as Record<string, unknown>;
+    if (record.data && typeof record.data === "object" && "content" in record.data) {
+      if (FLATTEN_SKIP_MARKERS.has(String((record.data as Record<string, unknown>).content))) return "";
     }
-    if (node.text) {
-      return String(node.text);
+    if (record.content) {
+      return parseStructuredNode(record.content);
+    }
+    if (record.text) {
+      return String(record.text);
     }
   }
 
   return "";
 }
 
-function cleanMeaningString(text: any): string {
+function cleanMeaningString(text: unknown): string {
   if (!text) return "";
   if (typeof text !== "string") {
     return parseStructuredNode(text).trim();
@@ -150,38 +160,40 @@ function findLongestTermAt(
   for (let len = maxLen; len >= 1; len--) {
     const sub = query.substring(pos, pos + len);
 
-    // Same particle-split heuristic as before: don't greedily swallow a trailing particle when
-    // the substring-without-particle is independently valid.
-    if (len >= 2 && PARTICLE_CHARS.has(sub[sub.length - 1]) && termMap.has(sub.slice(0, -1))) {
-      continue;
-    }
-
-    const direct = termMap.get(sub);
+    // 1. Direct match check first: never drop a genuine dictionary word
+    // just because its final character happens to be a particle (e.g. きれい, お酒).
+    const direct = getTerms(sub);
     if (direct && direct.length > 0) {
       return { len, sub, matches: direct };
     }
 
+    // 2. De-inflection match
     if (opts.tryDeinflection) {
       const baseForms = getBaseForms(sub);
       for (const bf of baseForms) {
-        if (bf.word === sub) continue; // identical to the direct check above, already tried
-        const deinflected = termMap.get(bf.word);
+        if (bf.word === sub) continue;
+        const deinflected = getTerms(bf.word);
         if (deinflected && deinflected.length > 0) {
           return { len, sub, matches: deinflected, deinflectionRules: bf.rules };
         }
       }
     }
 
-    // Reading-fallback: a word spelled in pure kana in the source text (e.g. おかげで) but
-    // indexed by its kanji headword (お陰で) in termMap - tried at this SAME length before
-    // shrinking, so a longer reading match still beats a shorter literal one.
+    // 3. Reading fallback
     if (len >= 2 && KANA_ONLY_RE.test(sub)) {
-      if (PARTICLE_CHARS.has(sub[sub.length - 1]) && readingMap.has(sub.slice(0, -1))) {
-        continue;
-      }
-      const byReading = readingMap.get(sub);
+      const byReading = getTermsByReading(sub);
       if (byReading && byReading.length > 0) {
         return { len, sub, matches: byReading, isReadingMatch: true };
+      }
+    }
+
+    // 4. If current substring does not match, but ends with a particle,
+    // check if the prefix without particle is a valid dictionary headword.
+    if (len >= 2 && PARTICLE_CHARS.has(sub[sub.length - 1])) {
+      const prefix = sub.slice(0, -1);
+      const prefixDirect = getTerms(prefix);
+      if (prefixDirect && prefixDirect.length > 0) {
+        return { len: len - 1, sub: prefix, matches: prefixDirect };
       }
     }
   }
@@ -215,7 +227,6 @@ function calculateTermScore(term: ServerTerm): number {
 
 const CACHE_FILES = [
   path.join(process.cwd(), "src", "data", "dict-cache-v1.json"),
-  path.join(process.cwd(), "public", "dict-cache-v1.json"),
   path.join(process.cwd(), ".next", "dict-cache-v1.json"),
 ];
 
@@ -225,7 +236,7 @@ const CACHE_FILES = [
 // branch below has no `await` until the file read, so calling it bare would still block the event
 // loop (and therefore this very request's own response) for the full parse+index duration.
 function buildServerIndexInBackground() {
-  if (isIndexReady || isIndexBuilding) return;
+  if (dictionaryDb.isReady() || isIndexReady || isIndexBuilding) return;
   isIndexBuilding = true;
   after(doBuildServerIndex);
 }
@@ -371,24 +382,8 @@ async function doBuildServerIndex() {
       })
     );
 
-    // Save persistent disk cache for instant loading on future refreshes.
-    // Write into .next/ rather than src/data/: dropping a multi-hundred-MB file inside the watched
-    // source tree invalidates the dev compiler, which re-evaluates this route module and resets the
-    // module-scope index flags below - making the dictionary appear to rebuild itself at random.
-    try {
-      const targetCacheFile = CACHE_FILES[2];
-      const cacheDir = path.dirname(targetCacheFile);
-      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-      fs.writeFileSync(
-        targetCacheFile,
-        JSON.stringify({
-          terms: Array.from(termMap.entries()),
-          kanji: Array.from(kanjiMap.entries()),
-        })
-      );
-    } catch (e) {
-      console.warn("Failed to write dict disk cache:", e);
-    }
+    // Runtime write to disk is eliminated to comply with read-only serverless filesystems
+    console.log("Memory dictionary fallback ready.");
   } catch (err) {
     console.error("Server dictionary index error:", err);
   }
@@ -399,7 +394,7 @@ async function doBuildServerIndex() {
 }
 
 export async function GET(request: Request) {
-  if (!isIndexReady && !isIndexBuilding) {
+  if (!dictionaryDb.isReady() && !isIndexReady && !isIndexBuilding) {
     buildServerIndexInBackground();
   }
 
@@ -407,6 +402,15 @@ export async function GET(request: Request) {
 
   // Status check endpoint for client dictionary readiness indicator
   if (searchParams.has("status")) {
+    if (dictionaryDb.isReady()) {
+      const stats = dictionaryDb.getStats();
+      return NextResponse.json({
+        isReady: true,
+        isBuilding: false,
+        totalTerms: stats.totalTerms,
+        totalKanji: stats.totalKanji,
+      });
+    }
     return NextResponse.json({
       isReady: isIndexReady,
       isBuilding: isIndexBuilding,
@@ -442,7 +446,7 @@ export async function GET(request: Request) {
     if (processedWords.has(bf.word)) continue;
     processedWords.add(bf.word);
 
-    const direct = termMap.get(bf.word);
+    const direct = getTerms(bf.word);
     if (direct && direct.length > 0) {
       for (const d of direct) {
         const clonedTerm = { ...d };
@@ -460,7 +464,11 @@ export async function GET(request: Request) {
   let computedReading = "";
 
   while (cursor < cleanQuery.length) {
-    const step = findLongestTermAt(cleanQuery, cursor); // no deinflection here - unchanged whole-chunk behavior
+    // Stop segmentation immediately at sentence punctuation
+    if (/[。！？\n]/.test(cleanQuery[cursor])) {
+      break;
+    }
+    const step = findLongestTermAt(cleanQuery, cursor);
     if (step) {
       // Sort matches using comprehensive scoring (dictionary priority + Yomitan score + popularity tags + length heuristics)
       const subMatches = [...step.matches].sort(
@@ -486,7 +494,7 @@ export async function GET(request: Request) {
       const char = cleanQuery[cursor];
       computedReading += char;
       if (/[\u4e00-\u9faf]/.test(char)) {
-        const kObj = kanjiMap.get(char);
+        const kObj = getKanji(char);
         if (kObj) {
           segmentedWords.push({ text: char, meanings: kObj.meanings });
         }
@@ -529,13 +537,21 @@ export async function GET(request: Request) {
     }
   }
 
+  let filteredSegmentedWords = segmentedWords;
+  if (targetPos !== null) {
+    const maxEnd = focusedStart + focusedLength;
+    filteredSegmentedWords = segmentedWords.filter((sw) => {
+      const idx = cleanQuery.indexOf(sw.text);
+      return idx >= focusedStart && idx < maxEnd;
+    });
+  }
   // Extract Kanji details
   const kanjiChars = Array.from(new Set(focusedQuery.match(/[\u4e00-\u9faf]/g) || []));
   for (const char of kanjiChars) {
-    let kObj = kanjiMap.get(char);
+    let kObj = getKanji(char);
 
-    if (!kObj && termMap.has(char)) {
-      const terms = termMap.get(char)!;
+    if (!kObj && hasTerm(char)) {
+      const terms = getTerms(char)!;
       const readings = Array.from(new Set(terms.map((t) => t.reading).filter(Boolean)));
       const meanings = Array.from(
         new Set(
@@ -597,11 +613,11 @@ export async function GET(request: Request) {
     reading: finalReading,
     terms: focusedTerms,
     kanjiList: matchedKanji,
-    segmentedWords,
+    segmentedWords: filteredSegmentedWords,
     focusedStart,
     focusedLength,
     // Lets the client tell a genuine dictionary miss apart from a lookup that ran before the index
     // finished building - the latter must not be cached, or the word stays broken all session.
-    indexReady: isIndexReady,
+    indexReady: dictionaryDb.isReady() || isIndexReady,
   });
 }

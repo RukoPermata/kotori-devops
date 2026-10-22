@@ -8,7 +8,7 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
-const SITE_URL = "https://readkotori.vercel.app";
+const SITE_URL = "https://kotori.kaisaaru.dev";
 const SITE_NAME = "Kotori";
 const SITE_TITLE = "Kotori: Japanese Light Novel & EPUB Reader";
 const SITE_DESCRIPTION =
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
     follow: true,
   },
   verification: {
-    google: "GANTI_DENGAN_KODE_VERIFIKASI_GOOGLE",
+    google: "googlef3304400c77dbd96",
   },
 };
 

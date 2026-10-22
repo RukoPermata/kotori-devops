@@ -85,6 +85,39 @@
   color-scheme: light;
 }
 
+/* ===== Auto-hide Custom Scrollbar for Dictionary Popup ===== */
+.kotori-dict-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.25s ease;
+}
+
+.kotori-dict-scroll:hover {
+  scrollbar-color: var(--dict-scroll-thumb, rgba(255, 255, 255, 0.25)) transparent;
+}
+
+.kotori-dict-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.kotori-dict-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kotori-dict-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background-color 0.25s ease;
+}
+
+.kotori-dict-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--dict-scroll-thumb, rgba(255, 255, 255, 0.25));
+}
+
+.kotori-dict-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--dict-scroll-thumb-hover, rgba(255, 255, 255, 0.45));
+}
 /* ===== Base Styles ===== */
 * {
   margin: 0;
