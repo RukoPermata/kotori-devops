@@ -11,31 +11,35 @@ interface DictionaryResultsProps {
   lookupData: LookupResult | null;
   isLoading: boolean;
   ttsRate?: number;
+  theme?: "dark" | "light" | "sepia";
   onClose: () => void;
 }
 
-function parseStructuredNode(node: any): string {
+function parseStructuredNode(node: unknown): string {
   if (!node) return "";
   if (typeof node === "string") return node;
   if (typeof node === "number") return String(node);
 
   if (Array.isArray(node)) {
-    return node.map(parseStructuredNode).filter(Boolean).join(" ");
+    const isList = node.some((n: unknown) => n && typeof n === "object" && "tag" in n && n.tag === "li");
+    const sep = isList ? " • " : " ";
+    return node.map(parseStructuredNode).filter(Boolean).join(sep);
   }
 
   if (typeof node === "object") {
-    if (node.content) {
-      return parseStructuredNode(node.content);
+    const record = node as Record<string, unknown>;
+    if (record.content) {
+      return parseStructuredNode(record.content);
     }
-    if (node.text) {
-      return String(node.text);
+    if (record.text) {
+      return String(record.text);
     }
   }
 
   return "";
 }
 
-function formatMeaning(text: any): string {
+function formatMeaning(text: unknown): string {
   if (!text) return "";
   let str = typeof text !== "string" ? parseStructuredNode(text) : text;
 
@@ -56,6 +60,10 @@ function formatMeaning(text: any): string {
   // 1. Remove POS tag brackets like 【形状詞-一般-* | kata sifat-na】 or 【名詞】
   str = str.replace(/【[^】]+】/g, "").trim();
 
+  // 1b. Remove leftover POS prefixes like "exp 1-dan", "v1", "v5k", "n", etc.
+  str = str.replace(/^(?:exp\s+1-dan|exp|v1|v5[a-z]?|adj-[a-z]+|n|vs|vt|vi|1-dan|godan)\s+(?=[a-z])/i, "");
+  str = str.replace(/^exp\s+1-dan\s+/i, "");
+
   // 2. Remove etymology notes like "Note orig. written 乃 or 之"
   str = str.replace(/Note\s+(orig\.|:).*?(?=\[\d+\]|①|②|③|•|$)/gi, "");
 
@@ -66,21 +74,15 @@ function formatMeaning(text: any): string {
   // e.g. 《格助》, 「わたしー本・本校ー生徒...」, 「ー・、ー！」, 「一」, 「ー〔＝〕」, ○○, ＊＊, etc.
   str = str
     .replace(/《[^》]*》/g, "")
-    .replace(/「[^」]*」/g, "")
-    .replace(/〔[^〕]*〕/g, "")
     .replace(/[＊*○◯]{2,}/g, "")
     .replace(/[・…\.。]{2,}/g, " ")
     .replace(/（\s*）|\(\s*\)/g, "");
-
   // 5. Format numbered points [1], [2], ①, ② into clean bullet separators
   str = str
     .replace(/\[\d+\]/g, " • ")
     .replace(/[①-⑳]/g, " • ");
 
-  // 6. Shorten long parenthetical notes if text is long (> 70 chars)
-  if (str.length > 70) {
-    str = str.replace(/\s*\([^)]*\)/g, "");
-  }
+  // Normalize whitespace and clean empty notes
 
   // Clean up double bullets, leading/trailing whitespace
   str = str
@@ -102,17 +104,25 @@ function getTermJLPT(expression: string, explicitJlpt?: string): string | undefi
   return explicitJlpt;
 }
 
-function getScriptBadge(text: string, jlpt?: string): { label: string; bg: string; color: string; border: string } | null {
+function getScriptBadge(
+  text: string,
+  jlpt?: string,
+  theme: "dark" | "light" | "sepia" = "dark"
+): { label: string; bg: string; color: string; border: string } | null {
   const clean = text.trim();
   if (!clean) return null;
+
+  const isLight = theme === "light";
+  const isSepia = theme === "sepia";
+  const isLightOrSepia = isLight || isSepia;
 
   // Pure Hiragana
   if (/^[\u3040-\u309f]+$/.test(clean)) {
     return {
       label: "Hiragana",
-      bg: "rgba(168, 85, 247, 0.15)",
-      color: "#c084fc",
-      border: "rgba(168, 85, 247, 0.3)",
+      bg: isLightOrSepia ? "rgba(147, 51, 234, 0.08)" : "rgba(168, 85, 247, 0.15)",
+      color: isLightOrSepia ? "#7e22ce" : "#c084fc",
+      border: isLightOrSepia ? "rgba(147, 51, 234, 0.25)" : "rgba(168, 85, 247, 0.3)",
     };
   }
 
@@ -120,9 +130,9 @@ function getScriptBadge(text: string, jlpt?: string): { label: string; bg: strin
   if (/^[\u30a0-\u30ff]+$/.test(clean)) {
     return {
       label: "Katakana",
-      bg: "rgba(20, 184, 166, 0.15)",
-      color: "#2dd4bf",
-      border: "rgba(20, 184, 166, 0.3)",
+      bg: isLightOrSepia ? "rgba(13, 148, 136, 0.08)" : "rgba(20, 184, 166, 0.15)",
+      color: isLightOrSepia ? "#0f766e" : "#2dd4bf",
+      border: isLightOrSepia ? "rgba(13, 148, 136, 0.25)" : "rgba(20, 184, 166, 0.3)",
     };
   }
 
@@ -131,9 +141,9 @@ function getScriptBadge(text: string, jlpt?: string): { label: string; bg: strin
     const computedJlpt = getTermJLPT(clean, jlpt);
     return {
       label: computedJlpt ? `Kanji ${computedJlpt}` : "Kanji",
-      bg: "rgba(245, 158, 11, 0.15)",
-      color: "#fbbf24",
-      border: "rgba(245, 158, 11, 0.3)",
+      bg: isLightOrSepia ? "rgba(180, 83, 9, 0.08)" : "rgba(245, 158, 11, 0.15)",
+      color: isLight ? "#b45309" : isSepia ? "#92400e" : "#fbbf24",
+      border: isLightOrSepia ? "rgba(180, 83, 9, 0.25)" : "rgba(245, 158, 11, 0.3)",
     };
   }
 
@@ -169,6 +179,41 @@ function isJapaneseMonolingual(name: string): boolean {
   return /国語|三省堂|広辞苑|大辞林|新明解|明鏡|岩波|大辞泉|学研/i.test(name);
 }
 
+function getDictBadge(
+  dictName: string,
+  theme: "dark" | "light" | "sepia" = "dark"
+): { label: string; bg: string; color: string } {
+  const isLight = theme === "light";
+  const isSepia = theme === "sepia";
+
+  if (dictName.includes("JIDict") || dictName.includes("Indonesian")) {
+    return {
+      label: "JIDict",
+      bg: isLight || isSepia ? "rgba(22, 163, 74, 0.1)" : "rgba(34, 197, 94, 0.15)",
+      color: isLight ? "#15803d" : isSepia ? "#166534" : "#4ade80",
+    };
+  }
+  if (dictName.includes("Jitendex") || dictName.includes("English") || dictName.includes("JMdict")) {
+    return {
+      label: "Jitendex",
+      bg: isLight || isSepia ? "rgba(2, 132, 199, 0.1)" : "rgba(56, 189, 248, 0.15)",
+      color: isLight ? "#0284c7" : isSepia ? "#0369a1" : "#38bdf8",
+    };
+  }
+  if (isJapaneseMonolingual(dictName)) {
+    return {
+      label: "三省堂",
+      bg: isLight || isSepia ? "rgba(220, 38, 38, 0.1)" : "rgba(239, 68, 68, 0.15)",
+      color: isLight ? "#b91c1c" : isSepia ? "#991b1b" : "#f87171",
+    };
+  }
+  const clean = dictName.replace(/\.zip$/i, "").replace(/\.org.*$/i, "").slice(0, 12);
+  return {
+    label: clean,
+    bg: isLight ? "rgba(0, 0, 0, 0.05)" : isSepia ? "rgba(120, 80, 40, 0.1)" : "rgba(148, 163, 184, 0.15)",
+    color: isLight ? "#334155" : isSepia ? "#44301d" : "#cbd5e1",
+  };
+}
 // Renders "漢字[かんじ]"-style inline furigana markup (produced by the indexer from Yomitan's
 // <ruby>/<rt> structured-content) as real <ruby><rt> elements instead of showing the brackets.
 // Matches the indexer's "{base|reading}" furigana markup - braces make each ruby's base
@@ -186,7 +231,7 @@ function renderFurigana(text: string) {
     parts.push(
       <ruby key={key++}>
         {match[1]}
-        <rt style={{ fontSize: "0.6em", color: "#94a3b8" }}>{match[2]}</rt>
+        <rt style={{ fontSize: "0.65em", opacity: 0.8, color: "inherit" }}>{match[2]}</rt>
       </ruby>
     );
     lastIndex = match.index + match[0].length;
@@ -208,8 +253,86 @@ export function DictionaryResults({
   lookupData,
   isLoading,
   ttsRate = 0.85,
+  theme = "dark",
   onClose,
 }: DictionaryResultsProps) {
+  const colors = {
+    dark: {
+      headword: "#38bdf8",
+      text: "#f8fafc",
+      textMuted: "#94a3b8",
+      subtext: "#cbd5e1",
+      cardBg: "rgba(255, 255, 255, 0.05)",
+      cardBorder: "rgba(255, 255, 255, 0.08)",
+      divider: "rgba(255, 255, 255, 0.08)",
+      kanjiBg: "rgba(56, 189, 248, 0.1)",
+      kanjiBorder: "rgba(56, 189, 248, 0.25)",
+      kanjiColor: "#38bdf8",
+      pointNum: "#38bdf8",
+      voiceBg: "rgba(56, 189, 248, 0.15)",
+      voiceBorder: "rgba(56, 189, 248, 0.3)",
+      voiceColor: "#38bdf8",
+      closeBg: "rgba(255, 255, 255, 0.08)",
+      closeColor: "#94a3b8",
+      tagDeinflectBg: "rgba(168, 85, 247, 0.15)",
+      tagDeinflectColor: "#c084fc",
+      tagDeinflectBorder: "rgba(168, 85, 247, 0.3)",
+      tagFreqBg: "rgba(34, 197, 94, 0.15)",
+      tagFreqColor: "#4ade80",
+      scrollThumb: "rgba(255, 255, 255, 0.22)",
+      scrollThumbHover: "rgba(255, 255, 255, 0.45)",
+    },
+    light: {
+      headword: "#0369a1",
+      text: "#0f172a",
+      textMuted: "#64748b",
+      subtext: "#334155",
+      cardBg: "rgba(0, 0, 0, 0.025)",
+      cardBorder: "rgba(0, 0, 0, 0.08)",
+      divider: "rgba(0, 0, 0, 0.08)",
+      kanjiBg: "rgba(2, 132, 199, 0.08)",
+      kanjiBorder: "rgba(2, 132, 199, 0.22)",
+      kanjiColor: "#0284c7",
+      pointNum: "#0284c7",
+      voiceBg: "rgba(2, 132, 199, 0.1)",
+      voiceBorder: "rgba(2, 132, 199, 0.25)",
+      voiceColor: "#0284c7",
+      closeBg: "rgba(0, 0, 0, 0.06)",
+      closeColor: "#64748b",
+      tagDeinflectBg: "rgba(147, 51, 234, 0.08)",
+      tagDeinflectColor: "#7e22ce",
+      tagDeinflectBorder: "rgba(147, 51, 234, 0.2)",
+      tagFreqBg: "rgba(22, 163, 74, 0.08)",
+      tagFreqColor: "#15803d",
+      scrollThumb: "rgba(0, 0, 0, 0.2)",
+      scrollThumbHover: "rgba(0, 0, 0, 0.4)",
+    },
+    sepia: {
+      headword: "#78350f",
+      text: "#2c1c0d",
+      textMuted: "#715843",
+      subtext: "#433020",
+      cardBg: "rgba(120, 80, 40, 0.05)",
+      cardBorder: "rgba(120, 80, 40, 0.14)",
+      divider: "rgba(120, 80, 40, 0.14)",
+      kanjiBg: "rgba(146, 64, 14, 0.08)",
+      kanjiBorder: "rgba(146, 64, 14, 0.25)",
+      kanjiColor: "#92400e",
+      pointNum: "#92400e",
+      voiceBg: "rgba(146, 64, 14, 0.1)",
+      voiceBorder: "rgba(146, 64, 14, 0.25)",
+      voiceColor: "#92400e",
+      closeBg: "rgba(120, 80, 40, 0.08)",
+      closeColor: "#715843",
+      tagDeinflectBg: "rgba(147, 51, 234, 0.08)",
+      tagDeinflectColor: "#6b21a8",
+      tagDeinflectBorder: "rgba(147, 51, 234, 0.2)",
+      tagFreqBg: "rgba(22, 163, 74, 0.08)",
+      tagFreqColor: "#166534",
+      scrollThumb: "rgba(61, 40, 23, 0.22)",
+      scrollThumbHover: "rgba(61, 40, 23, 0.45)",
+    },
+  }[theme || "dark"];
   const [isBreakdownExpanded, setIsBreakdownExpanded] = useState(false);
   const [ttsError, setTtsError] = useState<string | null>(null);
 
@@ -350,29 +473,32 @@ export function DictionaryResults({
     ? (explicitFurigana || validTerms[0]?.reading || lookupData?.reading)
     : undefined;
 
-  const headerScript = getScriptBadge(displayHeadword, allRawTerms[0]?.jlpt);
+  const headerScript = getScriptBadge(displayHeadword, allRawTerms[0]?.jlpt, theme);
   const hasKanji = !isLoading && !!lookupData && lookupData.kanjiList.length > 0;
-  // Only shown as a fallback when there's no direct dictionary match - segmentedWords covers the
-  // whole (often padded, surrounding-context) chunk sent to the server, not just the resolved
-  // word, so surfacing it alongside real term results just adds unrelated nearby-word noise.
   const hasBreakdown = !isLoading && !!lookupData && lookupData.segmentedWords.length > 0 && validTerms.length === 0;
-  // Pitch accent and alternate spellings describe the WORD, not any one dictionary's entry for it,
-  // so pull them off whichever matched term happens to carry them rather than per-card.
-  const headerPitch = allRawTerms.find((t) => t.pitchPosition !== undefined)?.pitchPosition;
-  const headerForms = allRawTerms.find((t) => t.forms && t.forms.length > 1)?.forms;
+
 
   return (
     <>
       {/* Header Bar */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "4px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: "12px",
+          paddingBottom: "8px",
+          borderBottom: `1px solid ${colors.divider}`,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "3px" }}>
           <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
             <span
               style={{
                 fontSize: "18px",
                 fontWeight: 800,
                 fontFamily: "'Hiragino Mincho ProN', 'Yu Mincho', serif",
-                color: "#38bdf8",
+                color: colors.headword,
                 lineHeight: 1.35,
                 wordBreak: "break-word",
               }}
@@ -397,28 +523,9 @@ export function DictionaryResults({
             )}
           </div>
           {displayReading && displayReading !== displayHeadword && (
-            <span style={{ fontSize: "12px", color: "#cbd5e1", wordBreak: "break-word" }}>
-              [{displayReading}]{headerPitch !== undefined && <sup style={{ marginLeft: "2px", color: "#38bdf8" }}>{headerPitch}</sup>}
+            <span style={{ fontSize: "12px", color: colors.subtext, wordBreak: "break-word" }}>
+              [{displayReading}]
             </span>
-          )}
-          {headerForms && headerForms.length > 1 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-              {headerForms.map((form, fIdx) => (
-                <span
-                  key={fIdx}
-                  style={{
-                    fontSize: "10px",
-                    padding: "1px 6px",
-                    borderRadius: "4px",
-                    backgroundColor: "rgba(255, 255, 255, 0.06)",
-                    color: "#94a3b8",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                  }}
-                >
-                  {form}
-                </span>
-              ))}
-            </div>
           )}
         </div>
 
@@ -449,11 +556,11 @@ export function DictionaryResults({
             title="Dengarkan pengucapan"
             style={{
               borderRadius: "50%",
-              width: "32px",
-              height: "32px",
-              backgroundColor: "rgba(56, 189, 248, 0.2)",
-              border: "1px solid rgba(56, 189, 248, 0.3)",
-              color: "#38bdf8",
+              width: "30px",
+              height: "30px",
+              backgroundColor: colors.voiceBg,
+              border: `1px solid ${colors.voiceBorder}`,
+              color: colors.voiceColor,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -461,10 +568,10 @@ export function DictionaryResults({
               flexShrink: 0,
               transition: "transform 0.15s ease",
             }}
-            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.9)")}
+            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.92)")}
             onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
-            <Volume2 style={{ width: "16px", height: "16px" }} />
+            <Volume2 style={{ width: "15px", height: "15px" }} />
           </button>
 
           <button
@@ -474,9 +581,9 @@ export function DictionaryResults({
               borderRadius: "50%",
               width: "32px",
               height: "32px",
-              backgroundColor: "rgba(255, 255, 255, 0.1)",
+              backgroundColor: colors.closeBg,
               border: "none",
-              color: "#94a3b8",
+              color: colors.closeColor,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -491,36 +598,48 @@ export function DictionaryResults({
 
       {/* Scrollable body: kanji strip + definitions + breakdown all scroll together, so the
           popup's total height never exceeds the viewport (header above stays fixed/visible). */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: "4px", display: "flex", flexDirection: "column", gap: "12px" }}>
-
+      {/* Scrollable body: kanji strip + definitions all scroll together */}
+      <div
+        className="kotori-dict-scroll"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          paddingRight: "4px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
+          ["--dict-scroll-thumb" as string]: colors.scrollThumb,
+          ["--dict-scroll-thumb-hover" as string]: colors.scrollThumbHover,
+        }}
+      >
       {/* Kanji chip strip - shown automatically whenever the headword contains kanji, no extra tap needed */}
+      {/* Kanji chip strip - Yomitan-style compact chips */}
       {hasKanji && (
-        <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "2px" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: "10px", color: colors.textMuted, fontWeight: 700, textTransform: "uppercase" }}>Kanji</span>
           {lookupData!.kanjiList.map((k, kIdx) => (
             <div
               key={kIdx}
               style={{
-                flexShrink: 0,
-                display: "flex",
-                flexDirection: "column",
+                display: "inline-flex",
                 alignItems: "center",
-                gap: "2px",
-                padding: "6px 10px",
-                borderRadius: "10px",
-                backgroundColor: "rgba(255, 255, 255, 0.05)",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
-                minWidth: "44px",
+                gap: "4px",
+                padding: "2px 6px",
+                borderRadius: "4px",
+                backgroundColor: colors.kanjiBg,
+                border: `1px solid ${colors.kanjiBorder}`,
+                color: colors.kanjiColor,
               }}
-              title={`Onyomi: ${k.onyomi.join(", ") || "-"} | Kunyomi: ${k.kunyomi.join(", ") || "-"}`}
+              title={`Kanji ${k.kanji} | Onyomi: ${k.onyomi.join(", ") || "-"} | Kunyomi: ${k.kunyomi.join(", ") || "-"}`}
             >
-              <span style={{ fontSize: "18px", fontWeight: 800, fontFamily: "serif", color: "#38bdf8" }}>
+              <span style={{ fontSize: "13px", fontWeight: 700, fontFamily: "serif" }}>
                 {k.kanji}
               </span>
-              <span style={{ fontSize: "9px", color: "#94a3b8", whiteSpace: "nowrap" }}>
-                {k.onyomi[0] || k.kunyomi[0] || "-"}
-              </span>
-              {k.jlpt && (
-                <span style={{ fontSize: "8px", fontWeight: 800, color: "#fbbf24" }}>{k.jlpt}</span>
+              {(k.onyomi[0] || k.kunyomi[0]) && (
+                <span style={{ fontSize: "9px", color: colors.textMuted }}>
+                  {k.onyomi[0] || k.kunyomi[0]}
+                </span>
               )}
             </div>
           ))}
@@ -548,14 +667,14 @@ export function DictionaryResults({
             <div
               key={idx}
               style={{
-                backgroundColor: "rgba(255, 255, 255, 0.05)",
-                borderRadius: "12px",
+                backgroundColor: colors.cardBg,
+                borderRadius: "10px",
                 padding: "10px 12px",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
+                border: `1px solid ${colors.cardBorder}`,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px", gap: "8px" }}>
-                <span style={{ fontSize: "14px", fontWeight: 700, color: "#f8fafc" }}>
+                <span style={{ fontSize: "14px", fontWeight: 700, color: colors.text }}>
                   {term.expression} ({term.reading})
                 </span>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
@@ -566,9 +685,9 @@ export function DictionaryResults({
                         fontWeight: 700,
                         padding: "2px 6px",
                         borderRadius: "4px",
-                        backgroundColor: "rgba(168, 85, 247, 0.15)",
-                        color: "#c084fc",
-                        border: "1px solid rgba(168, 85, 247, 0.3)",
+                        backgroundColor: colors.tagDeinflectBg,
+                        color: colors.tagDeinflectColor,
+                        border: `1px solid ${colors.tagDeinflectBorder}`,
                         display: "inline-flex",
                         alignItems: "center",
                         gap: "4px",
@@ -584,8 +703,8 @@ export function DictionaryResults({
                         fontSize: "10px",
                         padding: "2px 6px",
                         borderRadius: "6px",
-                        backgroundColor: "rgba(34, 197, 94, 0.15)",
-                        color: "#4ade80",
+                        backgroundColor: colors.tagFreqBg,
+                        color: colors.tagFreqColor,
                         fontWeight: 600,
                         whiteSpace: "nowrap",
                       }}
@@ -594,28 +713,33 @@ export function DictionaryResults({
                       {term.frequency[0].dictName} #{term.frequency[0].rank.toLocaleString()}
                     </span>
                   )}
-                  <span
-                    style={{
-                      fontSize: "10px",
-                      padding: "2px 6px",
-                      borderRadius: "6px",
-                      backgroundColor: "rgba(56, 189, 248, 0.15)",
-                      color: "#38bdf8",
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {term.dictName}
-                  </span>
+                  {(() => {
+                    const badge = getDictBadge(term.dictName, theme);
+                    return (
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          backgroundColor: badge.bg,
+                          color: badge.color,
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
-              <div style={{ fontSize: "12px", color: "#cbd5e1", lineHeight: 1.55, display: "flex", flexDirection: "column", gap: "4px" }}>
+              <div style={{ fontSize: "12px", color: colors.subtext, lineHeight: 1.55, display: "flex", flexDirection: "column", gap: "4px" }}>
                 {(() => {
                   const points = parseMeaningPoints(term.cleanMeanings);
                   const useNumbers = points.length > 1;
                   return points.map((point, pIdx) => (
                     <div key={pIdx} style={{ display: "flex", gap: "6px", alignItems: "flex-start" }}>
-                      <span style={{ color: "#38bdf8", fontWeight: 700, flexShrink: 0, fontSize: "11px" }}>
+                      <span style={{ color: colors.pointNum, fontWeight: 700, flexShrink: 0, fontSize: "11px" }}>
                         {useNumbers ? `${pIdx + 1}.` : "-"}
                       </span>
                       <span style={{ flex: 1 }}>{point}</span>
@@ -629,15 +753,15 @@ export function DictionaryResults({
                     marginTop: "8px",
                     padding: "8px 10px",
                     borderRadius: "8px",
-                    backgroundColor: "rgba(255, 255, 255, 0.04)",
-                    borderLeft: "2px solid rgba(56, 189, 248, 0.4)",
+                    backgroundColor: colors.cardBg,
+                    borderLeft: `2px solid ${colors.pointNum}`,
                   }}
                 >
-                  <div style={{ fontSize: "16px", color: "#e2e8f0", lineHeight: 1.8 }}>
+                  <div style={{ fontSize: "16px", color: colors.text, lineHeight: 1.8 }}>
                     {renderFurigana(term.example.japanese)}
                   </div>
                   {term.example.translation && (
-                    <div style={{ fontSize: "13px", color: "#94a3b8", marginTop: "6px" }}>
+                    <div style={{ fontSize: "13px", color: colors.textMuted, marginTop: "6px" }}>
                       {term.example.translation}
                     </div>
                   )}
