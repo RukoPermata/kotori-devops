@@ -1,10 +1,12 @@
 import {
   getAllBooks,
   getAllChapters,
+  getChapters,
   getAllProgress,
   getSettings,
   restoreLibrary,
 } from "./book-storage";
+import DOMPurify from "dompurify";
 import { CURRENT_VERSION } from "@/data/changelog";
 import type { BookMeta, Chapter, ReadingProgress, ReaderSettings } from "@/types/book";
 
@@ -42,10 +44,8 @@ export async function exportFullBackup(
   // Dynamically import JSZip so it doesn't inflate the initial landing page bundle
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
-
-  const [allBooks, allChapters, allProgress, settings] = await Promise.all([
+  const [allBooks, allProgress, settings] = await Promise.all([
     getAllBooks(),
-    getAllChapters(),
     getAllProgress(),
     getSettings(),
   ]);
@@ -56,7 +56,17 @@ export async function exportFullBackup(
 
   const selectedIdsSet = new Set(books.map((b) => b.id));
 
-  const chapters = allChapters.filter((c) => selectedIdsSet.has(c.bookId));
+  // Memory-efficient chapter fetching: fetch only chapters for selected books
+  let chapters: Chapter[];
+  if (selectedBookIds && selectedBookIds.length > 0) {
+    const chapterArrays = await Promise.all(
+      selectedBookIds.map((bId) => getChapters(bId))
+    );
+    chapters = chapterArrays.flat();
+  } else {
+    chapters = await getAllChapters();
+  }
+
   const progress = allProgress.filter((p) => selectedIdsSet.has(p.bookId));
 
   const preferences = {
@@ -255,9 +265,31 @@ export async function applyBackupRestore(
       .filter((p): p is ReadingProgress => Boolean(p));
   }
 
+  // Sanitize all chapter HTML contents to prevent XSS from tampered backup files
+  const sanitizedChapters = chaptersToRestore.map((ch) => ({
+    ...ch,
+    htmlContent: DOMPurify.sanitize(ch.htmlContent || "", {
+      USE_PROFILES: { html: true, svg: true },
+      ADD_TAGS: ["ruby", "rt", "rp", "svg", "image", "g", "path", "p", "div", "span"],
+      ADD_ATTR: [
+        "epub:type",
+        "xlink:href",
+        "href",
+        "viewBox",
+        "preserveAspectRatio",
+        "width",
+        "height",
+        "x",
+        "y",
+        "src",
+        "alt",
+      ],
+    }),
+  }));
+
   await restoreLibrary({
     books: booksToRestore,
-    chapters: chaptersToRestore,
+    chapters: sanitizedChapters,
     progress: finalProgress,
     settings: data.settings,
   });

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const SITE_URL = "https://readkotori.vercel.app";
+const SITE_URL = "https://kotori.kaisaaru.dev";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [

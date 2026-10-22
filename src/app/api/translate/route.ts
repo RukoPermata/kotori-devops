@@ -9,9 +9,42 @@ import { NextResponse } from "next/server";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
+// In-memory rate limiting: IP -> [count, resetAt]
+const translateRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function isTranslateRateLimited(ip: string, limit = 20, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const record = translateRateLimitMap.get(ip);
+
+  if (!record || now > record.resetAt) {
+    translateRateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+
+  if (record.count >= limit) {
+    return true;
+  }
+
+  record.count++;
+  return false;
+}
+
 export async function GET(request: Request) {
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown-client";
+
+  if (isTranslateRateLimited(ip, 20, 60_000)) {
+    return NextResponse.json(
+      { error: "Terlalu banyak permintaan terjemahan. Silakan coba lagi nanti." },
+      { status: 429 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
-  const text = searchParams.get("q")?.trim() || "";
+  const rawText = searchParams.get("q")?.trim() || "";
+  const text = rawText.slice(0, 300);
 
   if (!text) {
     return NextResponse.json({ translation: "" });
