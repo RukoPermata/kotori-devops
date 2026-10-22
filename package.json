@@ -1,13 +1,14 @@
 {
   "name": "kotori",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "prebuild": "node scripts/build-dict-cache.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
