@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Typecheck, Lint & Build
+    name: Typecheck, Lint, Test & Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -35,7 +35,10 @@ jobs:
       - name: 5. ESLint Code Quality
         run: npm run lint
 
-      - name: 6. Build Next.js Application
+      - name: 6. Run Automated Tests
+        run: npm test
+
+      - name: 7. Build Next.js Application
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
