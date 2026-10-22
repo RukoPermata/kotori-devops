@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert";
+import fs from "node:fs";
+import path from "node:path";
+import { execSync } from "node:child_process";
 import { dictionaryDb } from "../src/services/dictionary-db.ts";
 
 test("Security: Input sanitization and HTML escaping", () => {
@@ -24,6 +27,10 @@ test("Security: Input sanitization and HTML escaping", () => {
 });
 
 test("Dictionary SQLite Database: Query latency & integrity", () => {
+  const dbPath = path.join(process.cwd(), "src", "data", "dict-v1.db");
+  if (!fs.existsSync(dbPath)) {
+    execSync("node scripts/build-dict-cache.mjs", { stdio: "ignore" });
+  }
   const isReady = dictionaryDb.isReady();
   assert.ok(isReady, "Dictionary SQLite DB must initialize successfully");
 

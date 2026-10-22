@@ -35,10 +35,10 @@ jobs:
       - name: 5. ESLint Code Quality
         run: npm run lint
 
-      - name: 6. Run Automated Tests
-        run: npm test
-
-      - name: 7. Build Next.js Application
+      - name: 6. Build Next.js Application
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
+
+      - name: 7. Run Automated Tests
+        run: npm test
