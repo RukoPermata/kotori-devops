@@ -193,6 +193,16 @@ export default function ReaderPage() {
     () => chapters.map((c) => getPlainTextLength(c.htmlContent)),
     [chapters]
   );
+  const getScrollPosition = useCallback((): number => {
+    const el = contentRef.current;
+    if (!el) return 0;
+    if (settings.writingMode === "vertical") {
+      const max = el.scrollWidth - el.clientWidth;
+      return max > 0 ? Math.abs(el.scrollLeft) / max : 0;
+    }
+    const max = el.scrollHeight - el.clientHeight;
+    return max > 0 ? el.scrollTop / max : 0;
+  }, [settings.writingMode]);
 
   // Track the in-chapter scroll ratio for the progress badge, and save reading progress shortly
   // after scrolling settles - far more frequent/accurate than relying
@@ -242,7 +252,7 @@ export default function ReaderPage() {
     // cancelled (that was the bug: re-subscribing on every chapter change used to drop whatever
     // save was in flight at the moment of the chapter switch).
     return () => container.removeEventListener("scroll", handleScroll);
-  }, [isLoaded]);
+  }, [isLoaded, getScrollPosition]);
 
   // Recalculate bookmark rects on scroll / window resize / F11 fullscreen / layout reflow.
   // Rects stay in viewport coordinates and are drawn with position: fixed, same as the scan
@@ -497,7 +507,7 @@ export default function ReaderPage() {
       document.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("touchend", handleMouseUp);
     };
-  }, [settings.enableDictionary, book, currentChapterIndex, isBookJapanese]);
+  }, [settings.enableDictionary, book, currentChapterIndex, isBookJapanese, getScrollPosition]);
 
   // Yomitan / Yomichan extension auto-detection
   const [showYomitanBanner, setShowYomitanBanner] = useState(false);
@@ -588,7 +598,7 @@ export default function ReaderPage() {
       observer.disconnect();
       window.removeEventListener("keydown", handleShiftCheck);
     };
-  }, [isLoaded, settings.enableDictionary]);
+  }, [isLoaded, settings.enableDictionary, isBookJapanese]);
 
   // Load book data
   useEffect(() => {
@@ -1040,7 +1050,7 @@ export default function ReaderPage() {
       clearTimeout(scanTimeout);
       clearTimeout(dismissTimeout);
     };
-  }, [isLoaded, isSettingsOpen, isTocOpen, settings.enableDictionary, settings.dictTrigger, isBookJapanese]);
+  }, [isLoaded, isSettingsOpen, isTocOpen, settings.enableDictionary, settings.dictTrigger, isBookJapanese, clearScanHighlight]);
 
   // Reset scroll and clear active selection popup whenever chapter index or writing mode changes.
   // Exception: if a saved reading position is pending restoration (set on initial load from
@@ -1059,18 +1069,7 @@ export default function ReaderPage() {
         window.getSelection()?.removeAllRanges();
       }
     }
-  }, [currentChapterIndex, settings.writingMode, isLoaded, resetScrollPosition, applyScrollPosition]);
-
-  const getScrollPosition = (): number => {
-    const el = contentRef.current;
-    if (!el) return 0;
-    if (settings.writingMode === "vertical") {
-      const max = el.scrollWidth - el.clientWidth;
-      return max > 0 ? Math.abs(el.scrollLeft) / max : 0;
-    }
-    const max = el.scrollHeight - el.clientHeight;
-    return max > 0 ? el.scrollTop / max : 0;
-  };
+  }, [currentChapterIndex, settings.writingMode, isLoaded, resetScrollPosition, applyScrollPosition, clearScanHighlight]);
 
   const [chapterNotice, setChapterNotice] = useState<string | null>(null);
   const [isFading, setIsFading] = useState(false);
