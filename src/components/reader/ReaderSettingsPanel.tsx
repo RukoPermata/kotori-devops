@@ -12,6 +12,9 @@ import {
   Plus,
   Check,
   Trash2,
+  Download,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import type { ReaderSettings } from "@/types/book";
@@ -35,6 +38,14 @@ export default function ReaderSettingsPanel({
   isJapaneseBook = true,
 }: ReaderSettingsPanelProps) {
   const [customDicts, setCustomDicts] = useState<CustomDictionaryMeta[]>([]);
+  const [offlinePackStatus, setOfflinePackStatus] = useState<{
+    isDownloaded: boolean;
+    termCount: number;
+    kanjiCount: number;
+    downloadedAt?: number;
+  }>({ isDownloaded: false, termCount: 0, kanjiCount: 0 });
+  const [isDownloadingPack, setIsDownloadingPack] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{ percent: number; step: string }>({ percent: 0, step: "" });
   // Read from the shared store rather than polling here: this panel is unmounted whenever the
   // drawer closes, so a local poller restarted from scratch on every reopen and flashed
   // "Memeriksa Status Kamus..." even when the index had long been ready. DictionaryPrewarmer owns
@@ -53,6 +64,35 @@ export default function ReaderSettingsPanel({
   const handleDeleteDict = async (name: string) => {
     await dictionaryService.deleteCustomDictionary(name);
     await refreshCustomDicts();
+  };
+  const refreshOfflinePackStatus = useCallback(async () => {
+    const status = await dictionaryService.getOfflinePackStatus();
+    setOfflinePackStatus(status);
+  }, []);
+
+  useEffect(() => {
+    refreshOfflinePackStatus();
+  }, [refreshOfflinePackStatus]);
+
+  const handleDownloadOfflinePack = async () => {
+    setIsDownloadingPack(true);
+    setDownloadProgress({ percent: 10, step: language === "ID" ? "Memulai unduhan..." : "Starting download..." });
+    const res = await dictionaryService.downloadOfflinePack((percent, step) => {
+      setDownloadProgress({ percent, step });
+    });
+    setIsDownloadingPack(false);
+    if (res.success) {
+      await refreshOfflinePackStatus();
+    } else {
+      alert(language === "ID" ? `Gagal mengunduh kamus offline: ${res.error}` : `Failed to download offline dictionary: ${res.error}`);
+    }
+  };
+
+  const handleDeleteOfflinePack = async () => {
+    if (confirm(language === "ID" ? "Hapus paket kamus offline dari perangkat ini?" : "Remove offline dictionary pack from this device?")) {
+      await dictionaryService.deleteOfflinePack();
+      await refreshOfflinePackStatus();
+    }
   };
   return (
     <>
@@ -698,8 +738,7 @@ export default function ReaderSettingsPanel({
                     )}
                     </SettingSection>
 
-                    {/* Yomitan Dictionary Manager Section */}
-          <SettingSection label={language === "ID" ? "Kelola Kamus Kustom" : "Custom Dictionaries"}>
+          <SettingSection label={language === "ID" ? "Database & Leksikon Kamus" : "Dictionary Database"}>
             <div
               style={{
                 borderRadius: "14px",
@@ -713,8 +752,8 @@ export default function ReaderSettingsPanel({
             >
               <div style={{ fontSize: "12px", color: "var(--kb-text-secondary)", lineHeight: 1.5 }}>
                 {language === "ID"
-                  ? <>Impor & Kelola file <b>.zip</b> kamus Yomitan kustom Anda (JIDict, Jitendex, Sanseido, dll.).</>
-                  : <>Import & manage your custom Yomitan <b>.zip</b> dictionaries (JIDict, Jitendex, Sanseido, etc.).</>}
+                  ? <>Kotori sudah mengintegrasikan leksikon lengkap: <b>JIDict (ID)</b>, <b>Jitendex (EN)</b>, <b>三省堂国語辞典 (JP)</b>, <b>NHK Pitch Accent</b>, dan <b>Frekuensi JPDB</b>.</>
+                  : <>Kotori pre-integrates complete lexicons: <b>JIDict (ID)</b>, <b>Jitendex (EN)</b>, <b>Sanseido (JP)</b>, <b>NHK Pitch</b>, and <b>JPDB Frequency</b>.</>}
               </div>
 
               {/* Server Dictionary Status Badge */}
@@ -753,45 +792,180 @@ export default function ReaderSettingsPanel({
                   </span>
                 ) : null}
               </div>
+              {/* Offline Dictionary Pack Card */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                  padding: "12px 14px",
+                  borderRadius: "12px",
+                  backgroundColor: "var(--kb-surface)",
+                  border: "1px solid var(--kb-border-subtle)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span
+                      style={{
+                        width: "8px",
+                        height: "8px",
+                        borderRadius: "50%",
+                        backgroundColor: offlinePackStatus.isDownloaded ? "#22c55e" : "#eab308",
+                        boxShadow: `0 0 8px ${offlinePackStatus.isDownloaded ? "#22c55e" : "#eab308"}`,
+                      }}
+                    />
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--kb-text)" }}>
+                      {language === "ID" ? "Kamus Offline (Mode Pesawat)" : "Offline Dictionary (Airplane Mode)"}
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: "6px",
+                      backgroundColor: offlinePackStatus.isDownloaded ? "rgba(34, 197, 94, 0.15)" : "rgba(234, 179, 8, 0.15)",
+                      color: offlinePackStatus.isDownloaded ? "#22c55e" : "#ca8a04",
+                    }}
+                  >
+                    {offlinePackStatus.isDownloaded
+                      ? (language === "ID" ? "Kamus Offline Tersedia" : "Offline Ready")
+                      : (language === "ID" ? "Belum Diunduh" : "Not Downloaded")}
+                  </span>
+                </div>
 
-              {/* Upload Input */}
-              <label
+                <div style={{ fontSize: "11px", color: "var(--kb-text-muted)", lineHeight: 1.4 }}>
+                  {offlinePackStatus.isDownloaded
+                    ? (language === "ID"
+                      ? `${offlinePackStatus.termCount.toLocaleString()} kosakata & ${offlinePackStatus.kanjiCount.toLocaleString()} kanji tersimpan lokal. Siap digunakan kapan saja tanpa internet.`
+                      : `${offlinePackStatus.termCount.toLocaleString()} words & ${offlinePackStatus.kanjiCount.toLocaleString()} kanji saved locally. Ready to use offline.`)
+                    : (language === "ID"
+                      ? "Unduh paket kamus esensial (15.000 kata umum + kanji lengkap) agar pencarian kata tetap berfungsi 100% saat mode offline."
+                      : "Download the essential offline pack (15,000 common words + full kanji) to look up words without an internet connection.")}
+                </div>
+
+                {isDownloadingPack && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "var(--kb-primary)", fontWeight: 600 }}>
+                      <span>{downloadProgress.step}</span>
+                      <span>{downloadProgress.percent}%</span>
+                    </div>
+                    <div style={{ width: "100%", height: "4px", backgroundColor: "var(--kb-border)", borderRadius: "2px", overflow: "hidden" }}>
+                      <div
+                        style={{
+                          width: `${downloadProgress.percent}%`,
+                          height: "100%",
+                          backgroundColor: "var(--kb-primary)",
+                          transition: "width 0.3s ease",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "2px" }}>
+                  {!offlinePackStatus.isDownloaded ? (
+                    <button
+                      onClick={handleDownloadOfflinePack}
+                      disabled={isDownloadingPack}
+                      style={{
+                        flex: 1,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "6px",
+                        padding: "8px 12px",
+                        borderRadius: "8px",
+                        backgroundColor: "var(--kb-primary)",
+                        color: "#ffffff",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        border: "none",
+                        cursor: isDownloadingPack ? "not-allowed" : "pointer",
+                        opacity: isDownloadingPack ? 0.7 : 1,
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      {isDownloadingPack ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                      {isDownloadingPack
+                        ? (language === "ID" ? "Mengunduh..." : "Downloading...")
+                        : (language === "ID" ? "Unduh Kamus Offline (~2.5 MB)" : "Download Offline Pack (~2.5 MB)")}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleDownloadOfflinePack}
+                        disabled={isDownloadingPack}
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "6px",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          backgroundColor: "var(--kb-bg-secondary)",
+                          color: "var(--kb-text)",
+                          border: "1px solid var(--kb-border)",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          cursor: isDownloadingPack ? "not-allowed" : "pointer",
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        <RefreshCw size={12} className={isDownloadingPack ? "animate-spin" : ""} />
+                        {language === "ID" ? "Unduh Ulang / Perbarui" : "Re-download"}
+                      </button>
+                      <button
+                        onClick={handleDeleteOfflinePack}
+                        disabled={isDownloadingPack}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "6px",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          backgroundColor: "rgba(239, 68, 68, 0.1)",
+                          color: "#ef4444",
+                          border: "1px solid rgba(239, 68, 68, 0.2)",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        <Trash2 size={12} />
+                        {language === "ID" ? "Hapus" : "Delete"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Notice regarding built-in multi-lexicon integration */}
+              <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
                   gap: "8px",
-                  padding: "10px",
+                  padding: "10px 12px",
                   borderRadius: "10px",
                   backgroundColor: "var(--kb-surface)",
-                  border: "1px dashed var(--kb-primary)",
-                  color: "var(--kb-primary)",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  textAlign: "center",
-                  transition: "all 0.2s ease",
+                  border: "1px solid var(--kb-border-subtle)",
+                  fontSize: "11px",
+                  color: "var(--kb-text-muted)",
+                  lineHeight: 1.4,
                 }}
               >
-                {language === "ID" ? "+ Tambah Kamus ZIP Baru" : "+ Add New ZIP Dictionary"}
-                <input
-                  type="file"
-                  accept=".zip"
-                  multiple
-                  onChange={async (e) => {
-                    if (e.target.files) {
-                      for (let i = 0; i < e.target.files.length; i++) {
-                        const file = e.target.files[i];
-                        await dictionaryService.loadZipDictionary(file, file.name);
-                      }
-                      await refreshCustomDicts();
-                      alert(language === "ID" ? "Kamus Yomitan berhasil ditambahkan!" : "Yomitan dictionary added successfully!");
-                    }
-                  }}
-                  style={{ display: "none" }}
-                />
-              </label>
-
+                <span style={{ fontSize: "14px" }}>📚</span>
+                <span>
+                  {language === "ID"
+                    ? "Seluruh leksikon diindeks secara native via SQLite server & paket offline IndexedDB berkecepatan tinggi tanpa perlu impor file manual."
+                    : "All lexicons are indexed natively via server SQLite & high-speed IndexedDB offline packs without manual file imports."}
+                </span>
+              </div>
               {/* List of Uploaded Custom Dictionaries */}
               {customDicts.length > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>

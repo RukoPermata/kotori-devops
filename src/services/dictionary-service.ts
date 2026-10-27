@@ -1,4 +1,5 @@
 import { openDB, IDBPDatabase } from "idb";
+import { getBaseForms } from "@/lib/japanese/deinflector";
 
 export interface DictDefinition {
   dictName: string;
@@ -69,7 +70,7 @@ export interface CustomDictionaryMeta {
 }
 
 const DB_NAME = "kotoba-custom-dictionaries";
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
@@ -79,6 +80,15 @@ function getDictDB() {
       upgrade(db) {
         if (!db.objectStoreNames.contains("dictionaries")) {
           db.createObjectStore("dictionaries", { keyPath: "name" });
+        }
+        if (!db.objectStoreNames.contains("offline-cache")) {
+          db.createObjectStore("offline-cache", { keyPath: "queryKey" });
+        }
+        if (!db.objectStoreNames.contains("offline-terms")) {
+          db.createObjectStore("offline-terms", { keyPath: "expression" });
+        }
+        if (!db.objectStoreNames.contains("offline-kanji")) {
+          db.createObjectStore("offline-kanji", { keyPath: "kanji" });
         }
       },
     });
@@ -127,8 +137,10 @@ class DictionaryService {
         ? `/api/dictionary/lookup?q=${encodeURIComponent(cleanText)}&pos=${pos}`
         : `/api/dictionary/lookup?q=${encodeURIComponent(cleanText)}`;
       const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Dictionary lookup responded with status ${res.status}`);
+      }
       const data: LookupResult = await res.json();
-
       // A result produced while the server index was still building is empty for every word, and
       // is indistinguishable from a real miss. Caching it would keep that word broken for the rest
       // of the session even after the index finishes, so return it without storing anything.
@@ -152,13 +164,82 @@ class DictionaryService {
         this.expressionCache.set(primaryExpression, data);
       }
 
+      // Persist in client IndexedDB for offline access
+      getDictDB()
+        .then((db) => {
+          db.put("offline-cache", { ...data, queryKey: cacheKey });
+        })
+        .catch(() => {});
+
       return data;
     } catch (err) {
-      console.warn("Dictionary lookup error:", err);
+      console.warn("Dictionary network lookup failed, checking offline cache:", err);
+      try {
+        const db = await getDictDB();
+        const offlineRecord = await db.get("offline-cache", cacheKey);
+        if (offlineRecord) {
+          return offlineRecord as LookupResult;
+        }
+
+        // Offline terms lookup
+        if (db.objectStoreNames.contains("offline-terms")) {
+          const candidates = [cleanText, ...getBaseForms(cleanText).map((b) => b.word)];
+          for (const cand of candidates) {
+            const entry = await db.get("offline-terms", cand);
+            if (entry && entry.terms && entry.terms.length > 0) {
+              const matchedTerms: DictDefinition[] = entry.terms;
+              const matchedKanji: KanjiDetail[] = [];
+              const kanjiChars = Array.from(new Set(cleanText.match(/[\u4e00-\u9faf]/g) || []));
+              if (db.objectStoreNames.contains("offline-kanji")) {
+                for (const k of kanjiChars) {
+                  const kObj = await db.get("offline-kanji", k);
+                  if (kObj) matchedKanji.push(kObj);
+                }
+              }
+
+              const result: LookupResult = {
+                query: cleanText,
+                reading: matchedTerms[0]?.reading || cleanText,
+                terms: matchedTerms,
+                kanjiList: matchedKanji,
+                segmentedWords: [
+                  {
+                    text: cand,
+                    reading: matchedTerms[0]?.reading,
+                    meanings: matchedTerms[0]?.meanings || [],
+                    dictName: matchedTerms[0]?.dictName || "Kamus Offline",
+                  },
+                ],
+                focusedStart: 0,
+                focusedLength: cleanText.length,
+                indexReady: true,
+              };
+
+              await db.put("offline-cache", { ...result, queryKey: cacheKey }).catch(() => {});
+              return result;
+            }
+          }
+        }
+      } catch {
+        // IndexedDB offline read failed
+      }
+
+      const isActuallyOffline = typeof navigator !== "undefined" && navigator.onLine === false;
       return {
         query: cleanText,
         reading: cleanText,
-        terms: [],
+        terms: [
+          {
+            dictName: isActuallyOffline ? "Offline" : "Error",
+            expression: cleanText,
+            reading: cleanText,
+            meanings: [
+              isActuallyOffline
+                ? "Mode offline aktif. Kata ini belum tersimpan di memori perangkat Anda. Hubungkan kembali internet untuk mencari kata baru."
+                : "Gagal menghubungi server kamus. Periksa status server atau coba beberapa saat lagi.",
+            ],
+          },
+        ],
         kanjiList: [],
         segmentedWords: [],
       };
@@ -202,6 +283,88 @@ class DictionaryService {
       this.cache.clear();
     } catch (err) {
       console.warn("Delete custom dictionary error:", err);
+    }
+  }
+  async getOfflinePackStatus(): Promise<{ isDownloaded: boolean; termCount: number; kanjiCount: number; downloadedAt?: number }> {
+    try {
+      const db = await getDictDB();
+      const meta = await db.get("offline-cache", "__OFFLINE_PACK_METADATA__");
+      if (meta && meta.isDownloaded) {
+        return {
+          isDownloaded: true,
+          termCount: meta.termCount || 0,
+          kanjiCount: meta.kanjiCount || 0,
+          downloadedAt: meta.downloadedAt,
+        };
+      }
+      return { isDownloaded: false, termCount: 0, kanjiCount: 0 };
+    } catch {
+      return { isDownloaded: false, termCount: 0, kanjiCount: 0 };
+    }
+  }
+
+  async downloadOfflinePack(
+    onProgress?: (percent: number, step: string) => void
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      onProgress?.(15, "Mengunduh leksikon kamus...");
+      const res = await fetch("/api/dictionary/pack?limit=15000");
+      if (!res.ok) {
+        throw new Error(`Server status ${res.status}`);
+      }
+
+      onProgress?.(45, "Memproses paket kamus...");
+      const data = await res.json();
+      const terms: [string, DictDefinition[]][] = data.terms || [];
+      const kanji: [string, KanjiDetail][] = data.kanji || [];
+
+      onProgress?.(70, "Menyimpan ke IndexedDB lokal...");
+      const db = await getDictDB();
+      const tx = db.transaction(["offline-terms", "offline-kanji", "offline-cache"], "readwrite");
+      const termStore = tx.objectStore("offline-terms");
+      const kanjiStore = tx.objectStore("offline-kanji");
+      const cacheStore = tx.objectStore("offline-cache");
+
+      await termStore.clear();
+      await kanjiStore.clear();
+
+      for (const [expr, termList] of terms) {
+        termStore.put({ expression: expr, terms: termList });
+      }
+
+      for (const [, kObj] of kanji) {
+        kanjiStore.put(kObj);
+      }
+
+      await cacheStore.put({
+        queryKey: "__OFFLINE_PACK_METADATA__",
+        isDownloaded: true,
+        termCount: terms.length,
+        kanjiCount: kanji.length,
+        downloadedAt: Date.now(),
+      });
+
+      await tx.done;
+      this.clearMemoryCache();
+      onProgress?.(100, "Kamus offline siap digunakan!");
+      return { success: true };
+    } catch (err) {
+      console.error("[DictionaryService] downloadOfflinePack error:", err);
+      return { success: false, error: err instanceof Error ? err.message : "Gagal mengunduh" };
+    }
+  }
+
+  async deleteOfflinePack(): Promise<void> {
+    try {
+      const db = await getDictDB();
+      const tx = db.transaction(["offline-terms", "offline-kanji", "offline-cache"], "readwrite");
+      await tx.objectStore("offline-terms").clear();
+      await tx.objectStore("offline-kanji").clear();
+      await tx.objectStore("offline-cache").delete("__OFFLINE_PACK_METADATA__");
+      await tx.done;
+      this.clearMemoryCache();
+    } catch (err) {
+      console.warn("Delete offline pack error:", err);
     }
   }
 
