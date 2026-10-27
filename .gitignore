@@ -16,6 +16,7 @@ agent/
 .codex/
 .cache/
 PRODUCT.md
+private/
 
 # OS / editor noise
 .DS_Store
