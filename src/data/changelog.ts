@@ -11,6 +11,28 @@ export interface ChangelogEntry {
 // CURRENT_VERSION below always follows automatically.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.2.0",
+    date: "2026-10-28",
+    changes: {
+      id: [
+        "- Dukungan PWA Standalone & Mode Offline: aplikasi kini dapat diinstal langsung ke homescreen HP dan Desktop tanpa bilah browser, dilengkapi banner status koneksi otomatis dan service worker caching.",
+        "- Paket Kamus Offline 1-Klik (Mode Pesawat): fitur unduh leksikon esensial (15.000 kosakata terpopuler + 10.384 kanji) ke IndexedDB lokal untuk pencarian kata dan dekonjugasi 100% offline.",
+        "- Penyempurnaan Mesin Audio TTS: pemilihan suara Jepang otomatis, penanganan antrean audio macet (V8 GC fix), sanitasi tanda baca kutipan 『』, dan integrasi fallback audio player internal /api/tts untuk lingkungan Linux & Brave.",
+        "- Proteksi Keamanan Anti-Spam & Anti-Bot: implementasi honeypot field, validasi durasi ketik time-to-submit pada form feedback, sanitasi mention massal @everyone, dan auto-pruning TTL eliminasi kebocoran memori pada rate limiter.",
+        "- Peningkatan Keamanan Parsing EPUB: perlindungan terhadap arsip berbahaya (Zip Bomb protection) dengan batas akumulasi dekompresi aman 250 MB.",
+        "- Penyempurnaan UI & Security Headers: migrasi alert upload EPUB ke notifikasi toast UI non-blocking, penyelesaian dependency hooks reader, dan penambahan standard HTTP security headers.",
+      ],
+      en: [
+        "- Standalone PWA & Offline Support: Kotori can now be installed directly to home screens on mobile and desktop, equipped with connection status detection and service worker caching.",
+        "- 1-Click Offline Dictionary Pack: download essential lexicons (15,000 common terms + 10,384 kanji) into local IndexedDB for seamless airplane-mode reading and offline de-inflection.",
+        "- TTS Audio Engine Overhaul: automatic Japanese voice selection, V8 garbage collection stalling fix, quote bracket sanitation, and integrated internal /api/tts audio fallback player for Linux & Brave.",
+        "- Anti-Bot & Anti-Spam Hardening: implemented invisible honeypot, time-to-submit timing verification on feedback, @everyone mention sanitation, and TTL auto-pruning to prevent rate-limiter memory leaks.",
+        "- EPUB Safety & Zip Bomb Protection: enforced decompression size limits (up to 250 MB safe threshold) to prevent browser memory exhaustion from malicious archives.",
+        "- UI Refinements & Security Headers: migrated upload alerts to elegant toast notifications, resolved reader dependency hooks, and configured standard HTTP security headers.",
+      ],
+    },
+  },
+  {
     version: "1.1.0",
     date: "2026-10-22",
     changes: {
