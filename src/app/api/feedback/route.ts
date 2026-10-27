@@ -1,23 +1,61 @@
 import { NextResponse } from "next/server";
 
-// In-memory rate limiting: IP -> [timestamp, count]
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+// In-memory rate limiting with cooldown & capacity throttling
+interface FeedbackRateRecord {
+  count: number;
+  resetAt: number;
+  lastSentAt: number;
+}
 
-function isRateLimited(ip: string, limit = 5, windowMs = 60_000): boolean {
+const rateLimitMap = new Map<string, FeedbackRateRecord>();
+let lastCleanup = Date.now();
+
+const COOLDOWN_SECONDS = 45;
+const COOLDOWN_MS = COOLDOWN_SECONDS * 1000;
+const WINDOW_LIMIT = 2; // max 2 messages
+const WINDOW_MS = 5 * 60 * 1000; // per 5 minutes
+
+function checkFeedbackThrottling(ip: string): { limited: boolean; error?: string } {
   const now = Date.now();
-  const record = rateLimitMap.get(ip);
 
-  if (!record || now > record.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
-    return false;
+  // Auto-prune expired records every 60s or if map exceeds 5,000 entries
+  if (now - lastCleanup > 60_000 || rateLimitMap.size > 5_000) {
+    for (const [key, val] of rateLimitMap.entries()) {
+      if (now > val.resetAt && now - val.lastSentAt > COOLDOWN_MS) {
+        rateLimitMap.delete(key);
+      }
+    }
+    lastCleanup = now;
   }
 
-  if (record.count >= limit) {
-    return true;
+  const record = rateLimitMap.get(ip);
+  if (!record || now > record.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + WINDOW_MS, lastSentAt: now });
+    return { limited: false };
+  }
+
+  // 1. Enforce strict cooldown between consecutive messages (anti-burst)
+  const elapsedSinceLast = now - record.lastSentAt;
+  if (elapsedSinceLast < COOLDOWN_MS) {
+    const remainingSec = Math.ceil((COOLDOWN_MS - elapsedSinceLast) / 1000);
+    return {
+      limited: true,
+      error: `Mohon tunggu ${remainingSec} detik sebelum mengirim feedback berikutnya.`,
+    };
+  }
+
+  // 2. Enforce maximum capacity limit within 5 minutes
+  if (record.count >= WINDOW_LIMIT) {
+    const remainingMin = Math.ceil((record.resetAt - now) / 60_000);
+    return {
+      limited: true,
+      error: `Batas pengiriman feedback tercapai (maks. 2 pesan per 5 menit). Silakan coba ${remainingMin} menit lagi.`,
+    };
   }
 
   record.count++;
-  return false;
+  record.lastSentAt = now;
+  return { limited: false };
 }
 
 function escapeHtml(str: string): string {
@@ -35,14 +73,28 @@ export async function POST(request: Request) {
       request.headers.get("x-real-ip") ||
       "unknown-client";
 
-    if (isRateLimited(ip, 5, 60_000)) {
+    const throttle = checkFeedbackThrottling(ip);
+    if (throttle.limited) {
       return NextResponse.json(
-        { error: "Terlalu banyak permintaan feedback. Silakan coba lagi nanti." },
+        { error: throttle.error },
         { status: 429 }
       );
     }
 
-    const { category, message, contact, language } = await request.json();
+    const { category, message, contact, language, hpWebsite, clientTimestamp } = await request.json();
+
+    // 1. Honeypot check: If invisible field is populated, silently return success to fool bots
+    if (hpWebsite) {
+      return NextResponse.json({ success: true, processed: false });
+    }
+
+    // 2. Time-to-submit check: human users need at least 1.2s to open and submit feedback
+    if (typeof clientTimestamp === "number") {
+      const elapsed = Date.now() - clientTimestamp;
+      if (elapsed < 1200) {
+        return NextResponse.json({ success: true, processed: false });
+      }
+    }
 
     if (!message || typeof message !== "string" || message.trim().length === 0) {
       return NextResponse.json({ error: "Pesan tidak boleh kosong" }, { status: 400 });
@@ -55,7 +107,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const cleanMessage = message.trim().slice(0, 1000);
+    // Sanitize mentions to prevent Discord @everyone / @here abuse
+    const cleanMessage = message
+      .trim()
+      .slice(0, 1000)
+      .replace(/@(everyone|here)/gi, "@\u200B$1");
     const cleanContact = typeof contact === "string" ? contact.trim().slice(0, 100) : "";
     const cleanLanguage = typeof language === "string" ? language.trim().slice(0, 10) : "ID";
 

@@ -8,7 +8,7 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
-const SITE_URL = "https://kotori.kaisaaru.dev";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kotori.kaisaaru.dev";
 const SITE_NAME = "Kotori";
 const SITE_TITLE = "Kotori: Japanese Light Novel & EPUB Reader";
 const SITE_DESCRIPTION =

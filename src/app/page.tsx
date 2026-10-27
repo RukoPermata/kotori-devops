@@ -48,6 +48,7 @@ import { DictionarySearchFab } from "@/components/DictionarySearchFab";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 import { BookCard } from "@/components/home/BookCard";
 import { BookPreviewModal } from "@/components/home/BookPreviewModal";
+import { InstallPromptButton } from "@/components/InstallPromptButton";
 import { TRANSLATIONS } from "@/data/translations";
 // Deferred out of the initial bundle - most page loads never open the search modal or upload a
 // book, so their code (plus dictionary-service.ts / jszip+dompurify respectively) shouldn't ship
@@ -383,11 +384,11 @@ export default function HomePage() {
         await processUploadQueue(remaining, currentUpdatedBooks);
       } catch (error) {
         console.error(`Failed to parse ${file.name}:`, error);
-        alert(`Failed to parse "${file.name}". Make sure it's a valid EPUB file.`);
+        showToast(language === "ID" ? `Gagal membaca "${truncate(file.name, 35)}". Pastikan file merupakan EPUB valid.` : `Failed to parse "${truncate(file.name, 35)}".`, "error");
         await processUploadQueue(remaining, currentUpdatedBooks);
       }
     },
-    [loadBooks, showToast, t]
+    [loadBooks, showToast, t, language]
   );
 
   const handleUpload = useCallback(
@@ -397,13 +398,13 @@ export default function HomePage() {
         (f) => f.name.endsWith(".epub") || f.type === "application/epub+zip"
       );
       if (epubFiles.length === 0) {
-        alert("Please select an EPUB file.");
+        showToast(language === "ID" ? "Silakan pilih file berformat .epub" : "Please select an .epub file.", "error");
         return;
       }
       setIsUploading(true);
       await processUploadQueue(epubFiles, [...books]);
     },
-    [books, processUploadQueue]
+    [books, processUploadQueue, language, showToast]
   );
 
   const handleConfirmNonJapanese = async (accept: boolean) => {
@@ -420,7 +421,7 @@ export default function HomePage() {
         showToast(t.bookAdded(truncate(book.title, 40)), "success");
       } catch (error) {
         console.error(`Failed to save ${book.title}:`, error);
-        alert(`Failed to save "${book.title}".`);
+        showToast(language === "ID" ? `Gagal menyimpan "${truncate(book.title, 35)}".` : `Failed to save "${truncate(book.title, 35)}".`, "error");
       }
       await processUploadQueue(remainingFiles, updatedBooks);
     } else {
@@ -452,7 +453,7 @@ export default function HomePage() {
       showToast(t.progressReset(truncate(bookTitle, 40)), "reset");
     } catch (error) {
       console.error("Failed to reset progress:", error);
-      alert("Failed to reset reading progress.");
+      showToast(language === "ID" ? "Gagal mereset progres membaca." : "Failed to reset reading progress.", "error");
     }
   };
 
@@ -986,6 +987,9 @@ export default function HomePage() {
               <Sparkles style={{ width: "15px", height: "15px", flexShrink: 0 }} />
               <span className="kb-header-btn-label">{t.feedbackBtn}</span>
             </button>
+
+            {/* PWA Install Button (only visible when installable) */}
+            <InstallPromptButton language={language} />
 
             {/* Language Switcher (ID / EN) */}
             <div

@@ -10,8 +10,8 @@
 - Adjustable reading settings: font, size, line height, theme
 
 ## Pages
-- [Home](https://readkotori.vercel.app/): library and book upload
-- [Reader](https://readkotori.vercel.app/reader/): EPUB reading view with dictionary lookup
+- [Home](https://kotori.kaisaaru.dev/): library and book upload
+- [Reader](https://kotori.kaisaaru.dev/reader/): EPUB reading view with dictionary lookup
 
 ## Source
 - [GitHub repository](https://github.com/kaisaaru/kotori)

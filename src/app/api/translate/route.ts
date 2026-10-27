@@ -9,13 +9,20 @@ import { NextResponse } from "next/server";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
-// In-memory rate limiting: IP -> [count, resetAt]
+// In-memory rate limiting with TTL auto-cleanup
 const translateRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+let lastTranslateCleanup = Date.now();
 
 function isTranslateRateLimited(ip: string, limit = 20, windowMs = 60_000): boolean {
   const now = Date.now();
-  const record = translateRateLimitMap.get(ip);
+  if (now - lastTranslateCleanup > 60_000 || translateRateLimitMap.size > 5_000) {
+    for (const [key, val] of translateRateLimitMap.entries()) {
+      if (now > val.resetAt) translateRateLimitMap.delete(key);
+    }
+    lastTranslateCleanup = now;
+  }
 
+  const record = translateRateLimitMap.get(ip);
   if (!record || now > record.resetAt) {
     translateRateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
     return false;
@@ -30,6 +37,19 @@ function isTranslateRateLimited(ip: string, limit = 20, windowMs = 60_000): bool
 }
 
 export async function GET(request: Request) {
+  // Verify origin if present to prevent cross-origin abuse
+  const origin = request.headers.get("origin");
+  const host = request.headers.get("host");
+  if (origin && host) {
+    try {
+      const originUrl = new URL(origin);
+      if (originUrl.host !== host) {
+        return NextResponse.json({ error: "Forbidden origin" }, { status: 403 });
+      }
+    } catch {
+      return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
+    }
+  }
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip") ||

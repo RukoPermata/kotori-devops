@@ -152,6 +152,24 @@ class DictionaryDatabase {
       return { isReady: true, totalTerms: 0, totalKanji: 0 };
     }
   }
+
+  public getOfflinePack(limit = 15000): { terms: [string, ServerTerm[]][]; kanji: [string, ServerKanji][] } | null {
+    if (!this.isReady() || !this.db) return null;
+    try {
+      const stmtTerms = this.db.prepare("SELECT expression, data FROM terms WHERE data LIKE '%\"frequency\":%' LIMIT ?");
+      const termRows = stmtTerms.all(limit) as { expression: string; data: string }[];
+      const terms: [string, ServerTerm[]][] = termRows.map((r) => [r.expression, JSON.parse(r.data)]);
+
+      const stmtKanji = this.db.prepare("SELECT kanji, data FROM kanji");
+      const kanjiRows = stmtKanji.all() as { kanji: string; data: string }[];
+      const kanji: [string, ServerKanji][] = kanjiRows.map((r) => [r.kanji, JSON.parse(r.data)]);
+
+      return { terms, kanji };
+    } catch (err) {
+      console.error("[DictionaryDatabase] getOfflinePack error:", err);
+      return null;
+    }
+  }
 }
 
 export const dictionaryDb = new DictionaryDatabase();

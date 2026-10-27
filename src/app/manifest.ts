@@ -2,19 +2,29 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Kotori: Japanese Light Novel & EPUB Reader",
+    name: "Kotoba Reader AI (Kotori)",
     short_name: "Kotori",
     description:
-      "The all-in-one Japanese reading platform. Upload EPUB novels and read with built-in dictionary, grammar analysis, and instant lookup.",
+      "An all-in-one platform for reading Japanese Light Novels with integrated pop-up dictionary, grammar breakdown, and offline support.",
     start_url: "/",
+    scope: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#4f46e5",
+    orientation: "any",
+    background_color: "#0f172a",
+    theme_color: "#0f172a",
+    categories: ["books", "education", "utilities"],
     icons: [
       {
         src: "/icon.png",
         sizes: "512x512",
         type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/icon-only.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
       },
     ],
   };

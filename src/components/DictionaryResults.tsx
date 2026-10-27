@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useState, useRef, type ReactElement } from "react";
 import { X, Volume2, Puzzle, ChevronDown } from "lucide-react";
 import { LookupResult } from "@/services/dictionary-service";
 
@@ -335,7 +335,9 @@ export function DictionaryResults({
   }[theme || "dark"];
   const [isBreakdownExpanded, setIsBreakdownExpanded] = useState(false);
   const [ttsError, setTtsError] = useState<string | null>(null);
-
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   // `selectedText` is a padded chunk (not an exact word) whenever it came from the click/hover
   // scanner - `chunkPos` marks the cursor's position within it, so the server resolves just that
   // one word instead of everything it can segment out of the padded chunk.
@@ -378,48 +380,128 @@ export function DictionaryResults({
     });
   };
 
-  const handlePronounce = async () => {
-    if (!("speechSynthesis" in window)) {
-      setTtsError("Browser ini tidak mendukung Text-to-Speech");
-      return;
-    }
-    window.speechSynthesis.cancel();
-    setTtsError(null);
+  const playOnlineAudio = (text: string) => {
+    try {
+      setIsPlayingAudio(true);
+      const audioUrl = `/api/tts?q=${encodeURIComponent(text)}`;
+      const audio = new Audio(audioUrl);
+      audio.playbackRate = ttsRate;
+      activeAudioRef.current = audio;
 
-    const voices = await getVoicesAsync();
-    if (voices.length === 0) {
-      setTtsError("Tidak ada suara TTS terinstal di perangkat/browser ini");
+      audio.onended = () => {
+        setIsPlayingAudio(false);
+        activeAudioRef.current = null;
+      };
+      audio.onerror = () => {
+        setIsPlayingAudio(false);
+        activeAudioRef.current = null;
+        setTtsError("Gagal memutar audio pengucapan");
+        setTimeout(() => setTtsError(null), 4000);
+      };
+
+      audio.play().catch((err) => {
+        console.warn("[TTS] Online audio play failed:", err);
+        setIsPlayingAudio(false);
+        setTtsError("Gagal memutar suara");
+        setTimeout(() => setTtsError(null), 4000);
+      });
+    } catch (err) {
+      console.error("[TTS] Audio error:", err);
+      setIsPlayingAudio(false);
+      setTtsError("Gagal memutar suara");
       setTimeout(() => setTtsError(null), 4000);
-      return;
     }
+  };
+
+  const handlePronounce = async () => {
+    // Stop any in-progress audio or speech
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+      activeAudioRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      activeUtteranceRef.current = null;
+    }
+    setIsPlayingAudio(false);
+    setTtsError(null);
 
     // selectedText is a padded chunk (not the exact word) when this came from the click/hover
     // scanner - speak the resolved single word's reading instead of the whole raw chunk.
     const resolvedWord = lookupData?.terms?.[0]?.expression;
-    // If user drag-selected a sentence or multi-word phrase (> 5 chars or containing punctuation/spaces), speak the FULL selected text!
     const isSentence = !isChunkLookup && (selectedText.length > 5 || /[。、！？\s]/.test(selectedText));
-    let textToSpeak = isSentence
+    const rawText = isSentence
       ? selectedText
       : (explicitFurigana || lookupData?.reading || (isChunkLookup ? resolvedWord : selectedText) || "");
+
+    // Clean Japanese quotation marks, braces, furigana markup, and surrounding brackets
+    let textToSpeak = rawText
+      .replace(/\{([^|]+)\|([^}]+)\}/g, "$2") // replace {kanji|reading} markup with reading
+      .replace(/[『「"'\(\[\{【〔《]/g, "")
+      .replace(/[』」"'\)\]\}】〕》]/g, "")
+      .trim();
 
     // Fix Web Speech API reading Hiragana 'は' as 'wa' in interjections (e.g. はぁ -> ハァ)
     if (textToSpeak && /^は[ぁあっー!？~…]*$/.test(textToSpeak)) {
       textToSpeak = textToSpeak.replace(/は/g, "ハ");
     }
 
-    if (textToSpeak) {
+    if (!textToSpeak) return;
+
+    // If SpeechSynthesis is not supported on this browser, fall back to online audio directly
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      playOnlineAudio(textToSpeak);
+      return;
+    }
+
+    const voices = await getVoicesAsync();
+    // Search specifically for a Japanese voice
+    const jaVoice = voices.find(
+      (v) =>
+        v.lang === "ja-JP" ||
+        v.lang === "ja_JP" ||
+        v.lang.toLowerCase().startsWith("ja") ||
+        v.name.toLowerCase().includes("japanese") ||
+        v.name.includes("日本語")
+    );
+
+    // If no Japanese voice is installed on OS (very common on Linux & Brave), use crisp online audio
+    if (!jaVoice) {
+      playOnlineAudio(textToSpeak);
+      return;
+    }
+
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.voice = jaVoice;
       utterance.lang = "ja-JP";
       utterance.rate = ttsRate;
+
+      // Prevent Chromium V8 Garbage Collection from cutting off audio mid-playback
+      activeUtteranceRef.current = utterance;
+      setIsPlayingAudio(true);
+
+      utterance.onend = () => {
+        setIsPlayingAudio(false);
+        activeUtteranceRef.current = null;
+      };
+
       utterance.onerror = (e) => {
-        // "interrupted"/"canceled" fire from our own cancel() calls (e.g. rapid re-clicks) - not
-        // a real failure, so only surface genuine synthesis errors to the user.
+        setIsPlayingAudio(false);
+        activeUtteranceRef.current = null;
         if (e.error !== "interrupted" && e.error !== "canceled") {
-          setTtsError("Gagal memutar suara");
-          setTimeout(() => setTtsError(null), 4000);
+          // Fallback to online audio if speech synthesis fails at runtime
+          playOnlineAudio(textToSpeak);
         }
       };
+
       window.speechSynthesis.speak(utterance);
+    } catch {
+      playOnlineAudio(textToSpeak);
     }
   };
 
@@ -553,25 +635,25 @@ export function DictionaryResults({
           )}
           <button
             onClick={handlePronounce}
-            title="Dengarkan pengucapan"
+            title={isPlayingAudio ? "Sedang memutar audio..." : "Dengarkan pengucapan"}
             style={{
               borderRadius: "50%",
               width: "30px",
               height: "30px",
-              backgroundColor: colors.voiceBg,
-              border: `1px solid ${colors.voiceBorder}`,
-              color: colors.voiceColor,
+              backgroundColor: isPlayingAudio ? "rgba(59, 130, 246, 0.2)" : colors.voiceBg,
+              border: `1px solid ${isPlayingAudio ? "#3b82f6" : colors.voiceBorder}`,
+              color: isPlayingAudio ? "#3b82f6" : colors.voiceColor,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
               flexShrink: 0,
-              transition: "transform 0.15s ease",
+              transition: "all 0.15s ease",
             }}
             onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.92)")}
             onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
-            <Volume2 style={{ width: "15px", height: "15px" }} />
+            <Volume2 style={{ width: "15px", height: "15px" }} className={isPlayingAudio ? "animate-pulse" : ""} />
           </button>
 
           <button

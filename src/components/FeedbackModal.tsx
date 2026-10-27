@@ -54,23 +54,52 @@ export function FeedbackModal({
   const [category, setCategory] = useState<"idea" | "bug" | "love">("idea");
   const [message, setMessage] = useState("");
   const [contact, setContact] = useState("");
+  const [hpWebsite, setHpWebsite] = useState("");
+  const [openedAt, setOpenedAt] = useState<number>(Date.now());
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [isSending, setIsSending] = useState(false);
 
   const t = TRANSLATIONS[language];
 
   useEffect(() => {
     if (!isOpen) return;
+    setOpenedAt(Date.now());
+    setHpWebsite("");
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const lastSent = Number(localStorage.getItem("kotori_last_feedback_time") || 0);
+    const elapsed = Math.floor((Date.now() - lastSent) / 1000);
+    if (elapsed < 45) {
+      setCooldownSeconds(45 - elapsed);
+    } else {
+      setCooldownSeconds(0);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
 
   if (!isOpen) return null;
 
   const handleSend = async () => {
-    if (!message.trim() || isSending) return;
+    if (!message.trim() || isSending || cooldownSeconds > 0) return;
     setIsSending(true);
 
     try {
@@ -82,10 +111,14 @@ export function FeedbackModal({
           message,
           contact,
           language,
+          hpWebsite,
+          clientTimestamp: openedAt,
         }),
       });
 
       if (res.ok) {
+        localStorage.setItem("kotori_last_feedback_time", String(Date.now()));
+        setCooldownSeconds(45);
         onToast(t.feedbackSuccess, "success");
         setMessage("");
         setContact("");
@@ -108,6 +141,17 @@ export function FeedbackModal({
       onClick={onClose}
     >
       <div className="kb-feedback-content" onClick={(e) => e.stopPropagation()}>
+        {/* Invisible honeypot for bot protection */}
+        <div style={{ position: "absolute", left: "-9999px", opacity: 0, height: 0, width: 0, pointerEvents: "none" }} aria-hidden="true">
+          <input
+            type="text"
+            name="user_website_hp"
+            value={hpWebsite}
+            onChange={(e) => setHpWebsite(e.target.value)}
+            tabIndex={-1}
+            autoComplete="off"
+          />
+        </div>
         {/* Close button */}
         <button
           onClick={onClose}
@@ -272,7 +316,7 @@ export function FeedbackModal({
         {/* Send button */}
         <button
           onClick={handleSend}
-          disabled={isSending || !message.trim()}
+          disabled={isSending || !message.trim() || cooldownSeconds > 0}
           style={{
             width: "100%",
             padding: "14px",
@@ -281,17 +325,17 @@ export function FeedbackModal({
             borderRadius: "14px",
             border: "none",
             backgroundColor:
-              isSending || !message.trim()
+              isSending || !message.trim() || cooldownSeconds > 0
                 ? "var(--kb-bg-secondary)"
                 : "var(--kb-primary)",
             color:
-              isSending || !message.trim()
+              isSending || !message.trim() || cooldownSeconds > 0
                 ? "var(--kb-text-muted)"
                 : "#ffffff",
             cursor:
-              isSending || !message.trim() ? "not-allowed" : "pointer",
+              isSending || !message.trim() || cooldownSeconds > 0 ? "not-allowed" : "pointer",
             boxShadow:
-              isSending || !message.trim()
+              isSending || !message.trim() || cooldownSeconds > 0
                 ? "none"
                 : "0 4px 16px rgba(99,102,241,0.3)",
             display: "flex",
@@ -316,7 +360,13 @@ export function FeedbackModal({
           }}
         >
           <Send style={{ width: "14px", height: "14px" }} />
-          <span>{isSending ? t.sendingBtn : t.sendBtn}</span>
+          <span>
+            {isSending
+              ? t.sendingBtn
+              : cooldownSeconds > 0
+              ? (language === "ID" ? `Tunggu ${cooldownSeconds}s...` : `Wait ${cooldownSeconds}s...`)
+              : t.sendBtn}
+          </span>
         </button>
       </div>
     </div>
