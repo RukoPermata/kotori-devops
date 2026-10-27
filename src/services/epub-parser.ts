@@ -21,8 +21,33 @@ interface SpineItem {
 export async function parseEpub(
   file: File
 ): Promise<{ book: BookMeta; chapters: Chapter[]; isJapanese: boolean }> {
+  if (file.size > 150 * 1024 * 1024) {
+    throw new Error("File EPUB melebihi batas aman maksimal (150 MB).");
+  }
+
   const zip = await JSZip.loadAsync(file);
 
+  // Protect against Zip Bombs (excessive uncompressed size or unreasonable file count)
+  const MAX_SAFE_UNCOMPRESSED = 250 * 1024 * 1024; // 250 MB
+  let totalUncompressed = 0;
+  const entries = Object.values(zip.files);
+  if (entries.length > 2000) {
+    throw new Error("File EPUB berisi terlalu banyak item (> 2000 file). Berpotensi berbahaya.");
+  }
+  for (const entry of entries) {
+    let uncomp = 0;
+    if (entry && typeof entry === "object" && "_data" in entry) {
+      const dataObj = (entry as Record<string, unknown>)._data;
+      if (dataObj && typeof dataObj === "object" && "uncompressedSize" in dataObj) {
+        const sz = (dataObj as Record<string, unknown>).uncompressedSize;
+        if (typeof sz === "number") uncomp = sz;
+      }
+    }
+    totalUncompressed += uncomp;
+    if (totalUncompressed > MAX_SAFE_UNCOMPRESSED) {
+      throw new Error("Ukuran dekompresi EPUB melebihi batas aman (250 MB).");
+    }
+  }
   // 1. Find the rootfile path from META-INF/container.xml
   const containerXml = await zip.file("META-INF/container.xml")?.async("text");
   if (!containerXml) throw new Error("Invalid EPUB: missing container.xml");
