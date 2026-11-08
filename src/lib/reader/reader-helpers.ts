@@ -2,6 +2,8 @@
  * Reader DOM, Range, and Text helper utilities.
  */
 
+import { countReadableChars } from "@/lib/text/html-text";
+
 export function extractTextAndFurigana(
   container: HTMLElement,
   range?: Range | null,
@@ -143,8 +145,5 @@ export function usesNegativeScrollLeft(el: HTMLElement): boolean {
 }
 
 export function getPlainTextLength(html: string): number {
-  if (typeof document === "undefined") return 0;
-  const el = document.createElement("div");
-  el.innerHTML = html;
-  return (el.textContent || "").length;
+  return countReadableChars(html);
 }
