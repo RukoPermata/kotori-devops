@@ -2,6 +2,31 @@
  * Reader DOM, Range, and Text helper utilities.
  */
 
+export function adjustReaderFontSize(fontSize: number, delta: number): number {
+  return Math.max(12, Math.min(36, fontSize + delta));
+}
+
+export function getFontSizeForShortcut(
+  fontSize: number,
+  event: Pick<KeyboardEvent, "key" | "code" | "shiftKey" | "ctrlKey" | "metaKey" | "altKey" | "isComposing" | "defaultPrevented">,
+  target: Pick<HTMLElement, "tagName" | "isContentEditable"> | null,
+): number | null {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return null;
+  if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) return null;
+
+  if (event.key === "+" || (event.key === "=" && event.shiftKey) || event.code === "NumpadAdd") {
+    return adjustReaderFontSize(fontSize, 1);
+  }
+  if (event.key === "-" || event.code === "NumpadSubtract") {
+    return adjustReaderFontSize(fontSize, -1);
+  }
+  return null;
+}
+
+export function readerFocusReducer(isFocused: boolean, action: "toggle" | "exit"): boolean {
+  return action === "exit" ? false : !isFocused;
+}
+
 export function extractTextAndFurigana(
   container: HTMLElement,
   range?: Range | null,
