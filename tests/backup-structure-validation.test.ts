@@ -403,7 +403,7 @@ test("validateStructure: invalid metadata returns error", () => {
 // ==========================================
 test("inspectBackupFile: raw JSON with valid payload", async () => {
   const jsonContent = JSON.stringify({
-    books: [validBook],
+    books: [{ ...validBook, totalChapters: 1 }],
     chapters: [validChapter],
     progress: [validProgress],
     settings: { reader: validSettings },

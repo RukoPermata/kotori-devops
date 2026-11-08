@@ -8,6 +8,7 @@ import {
   validateDecompressedSize,
   validateCollectionLimits,
   validateStructure,
+  validateBackupRelations,
   BackupValidationError,
 } from "./backup-validation.ts";
 
@@ -239,6 +240,23 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
         };
       }
 
+      const relations = validateBackupRelations({
+        books,
+        chapters,
+        progress,
+        metadata,
+      });
+
+      if (!relations.isValid) {
+        return {
+          isValid: false,
+          books: [],
+          chapters: [],
+          progress: [],
+          error: relations.error,
+        };
+      }
+
       return {
         isValid: true,
         metadata,
@@ -291,6 +309,23 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
         };
       }
 
+      const relations = validateBackupRelations({
+        books,
+        chapters,
+        progress,
+        metadata,
+      });
+
+      if (!relations.isValid) {
+        return {
+          isValid: false,
+          books: [],
+          chapters: [],
+          progress: [],
+          error: relations.error,
+        };
+      }
+
       return {
         isValid: true,
         metadata,
@@ -336,7 +371,18 @@ export async function applyBackupRestore(
   }
 ): Promise<{ restoredBooks: number }> {
   if (!data.isValid || !data.books.length) {
-    throw new Error("Data backup tidak valid untuk dipulihkan.");
+    throw new Error(data.error || "Data backup tidak valid untuk dipulihkan.");
+  }
+
+  const relations = validateBackupRelations({
+    books: data.books,
+    chapters: data.chapters,
+    progress: data.progress,
+    metadata: data.metadata,
+  });
+
+  if (!relations.isValid) {
+    throw new Error(relations.error || "Data backup tidak valid untuk dipulihkan.");
   }
 
   const selectedSet =
