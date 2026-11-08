@@ -1,3 +1,5 @@
+import type { BookMeta, Chapter, ReadingProgress } from "../types/book.ts";
+
 export interface BackupMetadata {
   appName: string;
   version: string;
@@ -332,6 +334,415 @@ export function validateStructure(payload: {
     const res = validateBackupMetadata(p.metadata);
     if (!res.isValid) {
       return { isValid: false, error: `Invalid metadata: ${res.error}` };
+    }
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * Backup archive limit validation (size, entries, path traversal, collection bounds).
+ */
+
+/**
+ * Backup limit validation constants and functions.
+ * Protects against zip bombs, path traversal, oversized payloads, and memory exhaustion.
+ */
+
+export class BackupValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BackupValidationError";
+  }
+}
+
+export const BACKUP_LIMITS = {
+  MAX_BACKUP_FILE_SIZE: 150 * 1024 * 1024, // 150MB
+  MAX_RAW_JSON_SIZE: 100 * 1024 * 1024, // 100MB
+  MAX_ZIP_ENTRIES: 10,
+  MAX_UNCOMPRESSED_SIZE: 300 * 1024 * 1024, // 300MB
+  MAX_BOOKS_COUNT: 500,
+  MAX_CHAPTERS_COUNT: 25000,
+  MAX_CHAPTERS_PER_BOOK: 2000,
+  MAX_CHAPTER_CONTENT_BYTES: 5 * 1024 * 1024, // 5MB
+  ALLOWED_ZIP_FILENAMES: [
+    "kotori-metadata.json",
+    "books.json",
+    "chapters.json",
+    "progress.json",
+    "settings.json",
+  ] as const,
+};
+
+const ALLOWED_ZIP_SET: ReadonlySet<string> = new Set(BACKUP_LIMITS.ALLOWED_ZIP_FILENAMES);
+
+/**
+ * Validates basic backup file size and name attributes before processing.
+ */
+export function validateBackupFile(file: { name?: string; size: number }): boolean {
+  if (!file || typeof file.size !== "number" || Number.isNaN(file.size)) {
+    throw new BackupValidationError("Informasi file backup tidak valid.");
+  }
+
+  if (file.size <= 0) {
+    throw new BackupValidationError("File backup kosong (0 byte).");
+  }
+
+  const isJson = Boolean(file.name && file.name.toLowerCase().endsWith(".json"));
+
+  if (isJson) {
+    if (file.size > BACKUP_LIMITS.MAX_RAW_JSON_SIZE) {
+      const maxMb = BACKUP_LIMITS.MAX_RAW_JSON_SIZE / (1024 * 1024);
+      const currentMb = (file.size / (1024 * 1024)).toFixed(1);
+      throw new BackupValidationError(
+        `Ukuran file backup JSON (${currentMb} MB) melebihi batas maksimal (${maxMb} MB).`
+      );
+    }
+  } else {
+    if (file.size > BACKUP_LIMITS.MAX_BACKUP_FILE_SIZE) {
+      const maxMb = BACKUP_LIMITS.MAX_BACKUP_FILE_SIZE / (1024 * 1024);
+      const currentMb = (file.size / (1024 * 1024)).toFixed(1);
+      throw new BackupValidationError(
+        `Ukuran file backup (${currentMb} MB) melebihi batas maksimal (${maxMb} MB).`
+      );
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Validates zip archive metadata, total entries count, allowed filenames, and path traversal attempts.
+ */
+export function validateZipArchive(zip: { files: Record<string, any> }): boolean {
+  if (!zip || typeof zip !== "object" || !zip.files || typeof zip.files !== "object") {
+    throw new BackupValidationError("Arsip zip tidak valid atau tidak memiliki daftar file.");
+  }
+
+  const entries = Object.keys(zip.files);
+
+  if (entries.length > BACKUP_LIMITS.MAX_ZIP_ENTRIES) {
+    throw new BackupValidationError(
+      `Jumlah entri dalam arsip zip (${entries.length}) melebihi batas maksimal (${BACKUP_LIMITS.MAX_ZIP_ENTRIES}).`
+    );
+  }
+
+  for (const filename of entries) {
+    // Path traversal & directory checks
+    if (
+      filename.includes("..") ||
+      filename.startsWith("/") ||
+      filename.includes("\\") ||
+      filename.includes(":") ||
+      filename.endsWith("/") ||
+      Boolean(zip.files[filename]?.dir)
+    ) {
+      throw new BackupValidationError(
+        `Path traversal atau entri direktori terdeteksi pada zip: "${filename}".`
+      );
+    }
+
+    // Whitelist check
+    if (!ALLOWED_ZIP_SET.has(filename)) {
+      throw new BackupValidationError(
+        `Entri tidak dikenal dalam arsip zip: "${filename}". Hanya file berikut yang diizinkan: ${BACKUP_LIMITS.ALLOWED_ZIP_FILENAMES.join(", ")}.`
+      );
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Tracks decompression progress and rejects if total uncompressed bytes exceed the threshold.
+ */
+export function validateDecompressedSize(accumulatedBytes: number, addedBytes: number): number {
+  if (accumulatedBytes < 0 || addedBytes < 0) {
+    throw new BackupValidationError("Nilai ukuran byte tidak valid.");
+  }
+
+  const total = accumulatedBytes + addedBytes;
+  if (total > BACKUP_LIMITS.MAX_UNCOMPRESSED_SIZE) {
+    const maxMb = BACKUP_LIMITS.MAX_UNCOMPRESSED_SIZE / (1024 * 1024);
+    const totalMb = (total / (1024 * 1024)).toFixed(1);
+    throw new BackupValidationError(
+      `Total ukuran dekompresi (${totalMb} MB) melebihi batas maksimal (${maxMb} MB).`
+    );
+  }
+
+  return total;
+}
+
+function getUtf8ByteLength(text: string): number {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.byteLength(text, "utf8");
+  }
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * Validates collection counts and payload content sizes for books and chapters.
+ */
+export function validateCollectionLimits(payload: {
+  books?: unknown[];
+  chapters?: unknown[];
+}): boolean {
+  if (!payload || typeof payload !== "object") {
+    return true;
+  }
+
+  // 1. books.length <= 500
+  if (payload.books && Array.isArray(payload.books)) {
+    if (payload.books.length > BACKUP_LIMITS.MAX_BOOKS_COUNT) {
+      throw new BackupValidationError(
+        `Jumlah buku (${payload.books.length}) melebihi batas maksimal (${BACKUP_LIMITS.MAX_BOOKS_COUNT}).`
+      );
+    }
+  }
+
+  // 2. chapters.length <= 25000
+  if (payload.chapters && Array.isArray(payload.chapters)) {
+    if (payload.chapters.length > BACKUP_LIMITS.MAX_CHAPTERS_COUNT) {
+      throw new BackupValidationError(
+        `Jumlah bab (${payload.chapters.length}) melebihi batas maksimal (${BACKUP_LIMITS.MAX_CHAPTERS_COUNT}).`
+      );
+    }
+
+    const chaptersPerBook = new Map<string, number>();
+
+    for (const ch of payload.chapters) {
+      if (ch && typeof ch === "object") {
+        const item = ch as Record<string, unknown>;
+
+        // 3. Chapters per book <= 2000
+        if ("bookId" in item && item.bookId != null) {
+          const bookId = String(item.bookId);
+          const currentCount = (chaptersPerBook.get(bookId) || 0) + 1;
+          if (currentCount > BACKUP_LIMITS.MAX_CHAPTERS_PER_BOOK) {
+            throw new BackupValidationError(
+              `Jumlah bab untuk buku "${bookId}" (${currentCount}) melebihi batas maksimal (${BACKUP_LIMITS.MAX_CHAPTERS_PER_BOOK} bab per buku).`
+            );
+          }
+          chaptersPerBook.set(bookId, currentCount);
+        }
+
+        // 4. Chapter content length <= 5MB
+        const content =
+          typeof item.htmlContent === "string"
+            ? item.htmlContent
+            : typeof item.content === "string"
+            ? item.content
+            : null;
+
+        if (content) {
+          const contentBytes = getUtf8ByteLength(content);
+          if (contentBytes > BACKUP_LIMITS.MAX_CHAPTER_CONTENT_BYTES) {
+            const chTitle =
+              typeof item.title === "string"
+                ? item.title
+                : String(item.id ?? "unknown");
+            const maxMb = BACKUP_LIMITS.MAX_CHAPTER_CONTENT_BYTES / (1024 * 1024);
+            const contentMb = (contentBytes / (1024 * 1024)).toFixed(1);
+            throw new BackupValidationError(
+              `Ukuran konten bab "${chTitle}" (${contentMb} MB) melebihi batas maksimal (${maxMb} MB).`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Backup relational and referential integrity validation.
+ */
+
+export interface BackupValidationResult {
+  isValid: boolean;
+  error?: string;
+}
+
+export interface BackupValidationPayload {
+  books: BookMeta[];
+  chapters: Chapter[];
+  progress?: ReadingProgress[];
+  metadata?: BackupMetadata;
+}
+
+/**
+ * Validates relational and referential integrity of Kotori backup data.
+ * Strictly rejects any mismatch, orphan references, duplicates, or boundary violations.
+ */
+export function validateBackupRelations(
+  payload: BackupValidationPayload
+): BackupValidationResult {
+  if (!payload || !Array.isArray(payload.books) || !Array.isArray(payload.chapters)) {
+    return {
+      isValid: false,
+      error: "Invalid backup payload: books and chapters must be arrays.",
+    };
+  }
+
+  const { books, chapters, progress, metadata } = payload;
+
+  // 1. Primary / Unique Keys: Books
+  const bookMap = new Map<string, BookMeta>();
+  for (const book of books) {
+    if (!book || typeof book.id !== "string" || !book.id.trim()) {
+      return { isValid: false, error: "Invalid book: missing or invalid book ID." };
+    }
+    if (bookMap.has(book.id)) {
+      return { isValid: false, error: `Duplicate book ID found: "${book.id}".` };
+    }
+    bookMap.set(book.id, book);
+  }
+
+  // 2. Chapters: Unique ID, Foreign Key to Book, Duplicate (bookId, index), Bounds Check
+  const chapterIds = new Set<string>();
+  const chapterCompositeKeys = new Set<string>();
+  const chapterCountPerBook = new Map<string, number>();
+
+  for (const book of books) {
+    chapterCountPerBook.set(book.id, 0);
+  }
+
+  for (const chapter of chapters) {
+    if (!chapter || typeof chapter.id !== "string" || !chapter.id.trim()) {
+      return { isValid: false, error: "Invalid chapter: missing or invalid chapter ID." };
+    }
+    if (chapterIds.has(chapter.id)) {
+      return { isValid: false, error: `Duplicate chapter ID found: "${chapter.id}".` };
+    }
+    chapterIds.add(chapter.id);
+
+    // Foreign key check
+    const parentBook = bookMap.get(chapter.bookId);
+    if (!parentBook) {
+      return {
+        isValid: false,
+        error: `Orphan chapter found: chapter "${chapter.id}" references non-existent book ID "${chapter.bookId}".`,
+      };
+    }
+
+    // Unique composite key (bookId, index)
+    const compositeKey = `${chapter.bookId}:${chapter.index}`;
+    if (chapterCompositeKeys.has(compositeKey)) {
+      return {
+        isValid: false,
+        error: `Duplicate chapter composite key found for book "${chapter.bookId}" and index ${chapter.index}.`,
+      };
+    }
+    chapterCompositeKeys.add(compositeKey);
+
+    // Bounds check: 0 <= chapter.index < book.totalChapters
+    if (
+      typeof chapter.index !== "number" ||
+      !Number.isInteger(chapter.index) ||
+      chapter.index < 0 ||
+      chapter.index >= parentBook.totalChapters
+    ) {
+      return {
+        isValid: false,
+        error: `Chapter index ${chapter.index} for chapter "${chapter.id}" is out of bounds for book "${chapter.bookId}" (expected 0 <= index < ${parentBook.totalChapters}).`,
+      };
+    }
+
+    chapterCountPerBook.set(
+      chapter.bookId,
+      (chapterCountPerBook.get(chapter.bookId) || 0) + 1
+    );
+  }
+
+  // 3. Referential integrity: Every book must have at least 1 chapter & count must match totalChapters
+  for (const book of books) {
+    const count = chapterCountPerBook.get(book.id) || 0;
+    if (count === 0) {
+      return {
+        isValid: false,
+        error: `Book "${book.id}" ("${book.title}") has 0 chapters. Every book must have at least one chapter.`,
+      };
+    }
+    if (count !== book.totalChapters) {
+      return {
+        isValid: false,
+        error: `Chapter count mismatch for book "${book.id}" ("${book.title}"): expected ${book.totalChapters}, found ${count}.`,
+      };
+    }
+  }
+
+  // 4. Progress: Unique bookId, Foreign Key to Book, Bounds Check
+  if (progress !== undefined) {
+    if (!Array.isArray(progress)) {
+      return { isValid: false, error: "Invalid progress: must be an array." };
+    }
+
+    const progressBookIds = new Set<string>();
+    for (const prog of progress) {
+      if (!prog || typeof prog.bookId !== "string" || !prog.bookId.trim()) {
+        return { isValid: false, error: "Invalid progress: missing or invalid bookId." };
+      }
+      if (progressBookIds.has(prog.bookId)) {
+        return {
+          isValid: false,
+          error: `Duplicate progress for book ID found: "${prog.bookId}".`,
+        };
+      }
+      progressBookIds.add(prog.bookId);
+
+      const parentBook = bookMap.get(prog.bookId);
+      if (!parentBook) {
+        return {
+          isValid: false,
+          error: `Orphan progress found: progress references non-existent book ID "${prog.bookId}".`,
+        };
+      }
+
+      // Bounds check: 0 <= progress.chapterIndex < book.totalChapters
+      if (
+        typeof prog.chapterIndex !== "number" ||
+        !Number.isInteger(prog.chapterIndex) ||
+        prog.chapterIndex < 0 ||
+        prog.chapterIndex >= parentBook.totalChapters
+      ) {
+        return {
+          isValid: false,
+          error: `Progress chapterIndex ${prog.chapterIndex} for book "${prog.bookId}" is out of bounds (expected 0 <= chapterIndex < ${parentBook.totalChapters}).`,
+        };
+      }
+    }
+  }
+
+  // 5. Metadata Consistency (if metadata is present)
+  if (metadata) {
+    if (
+      metadata.totalBooks !== undefined &&
+      metadata.totalBooks !== books.length
+    ) {
+      return {
+        isValid: false,
+        error: `Metadata totalBooks mismatch: metadata reports ${metadata.totalBooks}, but found ${books.length} books.`,
+      };
+    }
+    if (
+      metadata.totalChapters !== undefined &&
+      metadata.totalChapters !== chapters.length
+    ) {
+      return {
+        isValid: false,
+        error: `Metadata totalChapters mismatch: metadata reports ${metadata.totalChapters}, but found ${chapters.length} chapters.`,
+      };
+    }
+    if (
+      progress !== undefined &&
+      metadata.totalProgress !== undefined &&
+      metadata.totalProgress !== progress.length
+    ) {
+      return {
+        isValid: false,
+        error: `Metadata totalProgress mismatch: metadata reports ${metadata.totalProgress}, but found ${progress.length} progress entries.`,
+      };
     }
   }
 

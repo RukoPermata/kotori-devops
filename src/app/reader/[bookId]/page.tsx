@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, useReducer } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -14,6 +14,7 @@ import {
   Sparkles,
   Lock,
   Unlock,
+  Focus,
 } from "lucide-react";
 import { DictionarySearchModal } from "@/components/DictionarySearchModal";
 import { DictionarySearchFab } from "@/components/DictionarySearchFab";
@@ -30,7 +31,7 @@ import {
   saveSettings,
 } from "@/services/book-storage";
 import type { Chapter as ChapterType } from "@/types/book";
-import { MARGIN_VALUES, READER_WIDTH_VALUES, getSystemTheme } from "@/types/book";
+import { DEFAULT_READER_SETTINGS, MARGIN_VALUES, READER_WIDTH_VALUES, getSystemTheme } from "@/types/book";
 import ReaderSettingsPanel from "@/components/reader/ReaderSettingsPanel";
 import TableOfContents from "@/components/reader/TableOfContents";
 import { SelectionPopup } from "@/components/reader/SelectionPopup";
@@ -42,7 +43,10 @@ import {
   findNearestTextRects,
   usesNegativeScrollLeft,
   getPlainTextLength,
+  getFontSizeForShortcut,
+  readerFocusReducer,
 } from "@/lib/reader/reader-helpers";
+import { computeBookProgress } from "@/lib/reader/progress";
 
 // Temporary instrumentation for reading-position save/restore path.
 const DEBUG_PROGRESS = false;
@@ -95,6 +99,7 @@ export default function ReaderPage() {
   const mainRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isFocusMode, dispatchFocusMode] = useReducer(readerFocusReducer, false);
   const [selectionState, setSelectionState] = useState<{
     text: string;
     explicitFurigana?: string;
@@ -1133,7 +1138,24 @@ export default function ReaderPage() {
   // Keyboard navigation
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && isFocusMode) {
+        e.preventDefault();
+        dispatchFocusMode("exit");
+        return;
+      }
       if (isSettingsOpen || isTocOpen) return;
+      if (isLoaded && !showDictionarySearch) {
+        const fontSize = getFontSizeForShortcut(
+          useReaderStore.getState().settings.fontSize,
+          e,
+          e.target instanceof HTMLElement ? e.target : null,
+        );
+        if (fontSize !== null) {
+          e.preventDefault();
+          setSettings({ fontSize });
+          return;
+        }
+      }
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         if (settings.lockChapterNav) {
           triggerChapterNotice(language === "ID" ? "Navigasi bab terkunci" : "Chapter navigation locked");
@@ -1148,13 +1170,13 @@ export default function ReaderPage() {
           settings.writingMode === "vertical" ? goPrevChapter() : goNextChapter();
           break;
         case "Escape":
-          router.push("/");
+          if (!e.repeat) router.push("/");
           break;
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [settings.writingMode, settings.lockChapterNav, currentChapterIndex, chapters.length, isSettingsOpen, isTocOpen, language, triggerChapterNotice, goNextChapter, goPrevChapter, router]);
+  }, [settings.writingMode, settings.lockChapterNav, currentChapterIndex, chapters.length, isSettingsOpen, isTocOpen, language, triggerChapterNotice, goNextChapter, goPrevChapter, router, isLoaded, showDictionarySearch, setSettings, isFocusMode]);
 
   // Mouse Wheel Horizontal Scroll Converter for Vertical Japanese Typesetting:
   // Converts physical desktop mouse vertical wheel (deltaY) into horizontal scrolling across pages.
@@ -1300,7 +1322,7 @@ export default function ReaderPage() {
     }
 
     // Toggle toolbar only on intentional tap/click in empty reading area
-    if (!isSettingsOpen && !isTocOpen) {
+    if (!isFocusMode && !isSettingsOpen && !isTocOpen) {
       setShowToolbar(!showToolbar);
     }
   };
@@ -1341,12 +1363,15 @@ export default function ReaderPage() {
     : true;
   const inChapterProgress = isChapterScrollable ? normalizedChapterRatio : 1;
 
-  const totalBookChars = chapterCharCounts.reduce((a, b) => a + b, 0);
-  const charsBeforeChapter = chapterCharCounts.slice(0, currentChapterIndex).reduce((a, b) => a + b, 0);
-  const currentChapterChars = chapterCharCounts[currentChapterIndex] ?? 0;
-  const currentCharPosition = Math.round(charsBeforeChapter + currentChapterChars * inChapterProgress);
-  const bookPercent = totalBookChars > 0 ? (currentCharPosition / totalBookChars) * 100 : 0;
-  const progressPercent = Math.round(bookPercent);
+  const bookProgress = computeBookProgress({
+    chapterCharCounts,
+    chapterIndex: currentChapterIndex,
+    inChapterRatio: inChapterProgress,
+  });
+  const totalBookChars = bookProgress.totalChars;
+  const currentCharPosition = bookProgress.charsRead;
+  const bookPercent = bookProgress.exactPercent;
+  const progressPercent = bookProgress.percent;
 
   return (
     <div
@@ -1354,7 +1379,7 @@ export default function ReaderPage() {
       style={{ backgroundColor: "var(--kb-bg)", color: "var(--kb-text)" }}
     >
       {/* ===== Top Toolbar ===== */}
-      <header
+      {!isFocusMode && <header
         className="kb-reader-header"
         style={{
           position: "fixed",
@@ -1430,7 +1455,8 @@ export default function ReaderPage() {
             backgroundColor: "var(--kb-bg-secondary)",
             border: "1px solid var(--kb-border-subtle)",
             color: "var(--kb-text-muted)",
-            flexShrink: 0,
+            flexShrink: 1,
+            minWidth: 0,
             margin: "0 8px",
           }}
         >
@@ -1445,6 +1471,21 @@ export default function ReaderPage() {
 
         {/* Right: Controls */}
         <div className="kb-reader-right-section" style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, marginLeft: "12px" }}>
+          <button
+            type="button"
+            onClick={() => dispatchFocusMode("toggle")}
+            aria-label={language === "ID" ? "Aktifkan Focus Mode" : "Enter Focus Mode"}
+            aria-pressed={isFocusMode}
+            title="Focus Mode"
+            style={{
+              width: "36px", height: "36px", borderRadius: "10px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              backgroundColor: "var(--kb-bg-secondary)", border: "1px solid var(--kb-border)",
+              color: "var(--kb-text)", cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            <Focus size={16} />
+          </button>
           {/* Lock / Unlock Chapter Navigation */}
           <button
             onClick={(e) => {
@@ -1605,10 +1646,29 @@ export default function ReaderPage() {
             <Settings style={{ width: "16px", height: "16px" }} />
           </button>
         </div>
-      </header>
+      </header>}
+
+      {isFocusMode && (
+        <button
+          type="button"
+          autoFocus
+          onClick={() => dispatchFocusMode("exit")}
+          aria-label={language === "ID" ? "Keluar dari Focus Mode" : "Exit Focus Mode"}
+          title={language === "ID" ? "Keluar dari Focus Mode (Esc)" : "Exit Focus Mode (Esc)"}
+          style={{
+            position: "fixed", top: "12px", right: "12px", zIndex: 45,
+            width: "32px", height: "32px", borderRadius: "10px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            backgroundColor: "var(--kb-surface)", border: "1px solid var(--kb-border)",
+            color: "var(--kb-text)", cursor: "pointer",
+          }}
+        >
+          <X size={16} />
+        </button>
+      )}
 
       {/* Yomitan Extension Detected Floating Prompt */}
-      {showYomitanBanner && isBookJapanese && (settings.enableDictionary ?? true) && (
+      {!isFocusMode && showYomitanBanner && isBookJapanese && (settings.enableDictionary ?? true) && (
         <div
           role="alert"
           style={{
@@ -1758,7 +1818,7 @@ export default function ReaderPage() {
             border: "1px solid var(--kb-border)",
             color: "var(--kb-text)",
             boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
-            display: settings.lockChapterNav ? "none" : "flex",
+            display: isFocusMode || settings.lockChapterNav ? "none" : "flex",
             alignItems: "center",
             justifyContent: "center",
             cursor: "pointer",
@@ -1796,7 +1856,7 @@ export default function ReaderPage() {
             border: "1px solid var(--kb-border)",
             color: "var(--kb-text)",
             boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
-            display: settings.lockChapterNav ? "none" : "flex",
+            display: isFocusMode || settings.lockChapterNav ? "none" : "flex",
             alignItems: "center",
             justifyContent: "center",
             cursor: "pointer",
@@ -1956,7 +2016,7 @@ export default function ReaderPage() {
       </main>
 
       {/* ===== Bottom Bar ===== */}
-      <div
+      {!isFocusMode && <div
         className="kb-reader-bottom-bar"
         style={{
           position: "absolute",
@@ -2055,7 +2115,7 @@ export default function ReaderPage() {
         >
           <ChevronRight style={{ width: "16px", height: "16px" }} />
         </button>
-      </div>
+      </div>}
 
       {/* ===== Live Scanned-Word Highlight ===== */}
       {/* Same painting mechanism as the bookmark overlay above - viewport rects in a fixed,
@@ -2112,14 +2172,14 @@ export default function ReaderPage() {
       {/* Fixed bottom-right, positioned above the 56px bottom toolbar so it never overlaps it, and
           stays visible regardless of showToolbar (unlike the toolbar's own search entry it replaces)
           so the dictionary is always one tap away while reading. */}
-      <DictionarySearchFab
+      {!isFocusMode && <DictionarySearchFab
         onClick={() => setShowDictionarySearch(true)}
         language={language}
         bottom="76px"
-      />
+      />}
 
       {/* ===== Book-wide Reading Progress Badge (ttu-reader style, always visible regardless of toolbar) ===== */}
-      {totalBookChars > 0 && (
+      {!isFocusMode && totalBookChars > 0 && (
         <div
           style={{
             position: "fixed",
@@ -2181,7 +2241,7 @@ export default function ReaderPage() {
       {/* Only rendered while the server index is still building, and dismissed by the status itself
           rather than a timer - so the reader can tell at a glance whether the dictionary is usable
           without having to open Settings. Sits above the chapter toast so the two never overlap. */}
-      {dictStatus && !dictStatus.isReady && (
+      {!isFocusMode && dictStatus && !dictStatus.isReady && (
         <div
           style={{
             position: "fixed",
@@ -2237,6 +2297,12 @@ export default function ReaderPage() {
         <ReaderSettingsPanel
           settings={settings}
           onSettingsChange={setSettings}
+          onResetSettings={() => {
+            if (settings.writingMode !== DEFAULT_READER_SETTINGS.writingMode) {
+              pendingScrollRestoreRef.current = getScrollPosition();
+            }
+            setSettings(DEFAULT_READER_SETTINGS);
+          }}
           onClose={() => setSettingsOpen(false)}
           language={language}
           isJapaneseBook={isBookJapanese}

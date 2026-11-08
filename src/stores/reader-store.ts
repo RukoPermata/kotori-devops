@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { ReaderSettings, BookMeta, Chapter } from "@/types/book";
-import { DEFAULT_READER_SETTINGS } from "@/types/book";
+import type { ReaderSettings, BookMeta, Chapter } from "../types/book.ts";
+import { DEFAULT_READER_SETTINGS } from "../types/book.ts";
 
 interface ReaderState {
   // Book data

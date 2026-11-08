@@ -21,10 +21,12 @@ import type { ReaderSettings } from "@/types/book";
 import { FONT_FAMILIES } from "@/types/book";
 import { dictionaryService, CustomDictionaryMeta } from "@/services/dictionary-service";
 import { useDictionaryStore } from "@/stores/dictionary-store";
+import { adjustReaderFontSize } from "@/lib/reader/reader-helpers";
 
 interface ReaderSettingsPanelProps {
   settings: ReaderSettings;
   onSettingsChange: (partial: Partial<ReaderSettings>) => void;
+  onResetSettings: () => void;
   onClose: () => void;
   language?: "ID" | "EN";
   isJapaneseBook?: boolean;
@@ -33,6 +35,7 @@ interface ReaderSettingsPanelProps {
 export default function ReaderSettingsPanel({
   settings,
   onSettingsChange,
+  onResetSettings,
   onClose,
   language = "ID",
   isJapaneseBook = true,
@@ -364,8 +367,8 @@ export default function ReaderSettingsPanel({
               max={36}
               step={1}
               unit="px"
-              onDecrement={() => onSettingsChange({ fontSize: Math.max(12, settings.fontSize - 1) })}
-              onIncrement={() => onSettingsChange({ fontSize: Math.min(36, settings.fontSize + 1) })}
+              onDecrement={() => onSettingsChange({ fontSize: adjustReaderFontSize(settings.fontSize, -1) })}
+              onIncrement={() => onSettingsChange({ fontSize: adjustReaderFontSize(settings.fontSize, 1) })}
               onChange={(v) => onSettingsChange({ fontSize: v })}
               decrementLabel={language === "ID" ? "Kurangi Ukuran Font" : "Decrease Font Size"}
               incrementLabel={language === "ID" ? "Tambah Ukuran Font" : "Increase Font Size"}
@@ -1019,6 +1022,25 @@ export default function ReaderSettingsPanel({
               )}
             </div>
           </SettingSection>
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm(language === "ID"
+                ? "Kembalikan semua pengaturan reader ke nilai default?"
+                : "Reset all reader settings to default?")) {
+                onResetSettings();
+              }
+            }}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+              padding: "12px", borderRadius: "10px",
+              backgroundColor: "var(--kb-bg-secondary)", border: "1px solid var(--kb-border)",
+              color: "var(--kb-text)", fontSize: "13px", fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            <RefreshCw size={16} />
+            Reset to Default
+          </button>
         </div>
       </div>
     </>

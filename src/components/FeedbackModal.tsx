@@ -1,7 +1,16 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Sparkles, ShieldAlert, Heart, Send } from "lucide-react";
+import { X, Sparkles, ShieldAlert, Heart, Send, BookOpen } from "lucide-react";
+import {
+  emptyFeedbackDraft,
+  clearFeedbackDraft,
+  FEEDBACK_CATEGORIES,
+  getFeedbackPreview,
+  readFeedbackDraft,
+  saveFeedbackDraft,
+  type FeedbackDraft,
+} from "@/lib/feedback";
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -17,12 +26,23 @@ const TRANSLATIONS = {
       "Kotori dibuat untuk mempermudah membaca & belajar bahasa Jepang. Bagikan ide fitur baru, lapor bug, atau berikan apresiasi kepada developer!",
     catBug: "Lapor Bug / Error",
     catIdea: "Ide Fitur Baru",
+    catDictionary: "Kesalahan Kamus",
     catLove: "Apresiasi / Lainnya",
     msgPlaceholder:
       "Tuliskan saran, kritik, atau detail masalah yang Anda temukan di sini...",
     contactPlaceholder: "Opsional: IG / TikTok atau email Anda jika ingin dibalas",
     sendBtn: "Kirim Pesan",
     sendingBtn: "Mengirim...",
+    previewBtn: "Lihat Preview",
+    editBtn: "Kembali Mengedit",
+    previewTitle: "Preview Feedback",
+    previewMessage: "Pesan",
+    previewContact: "Kontak",
+    anonymous: "Anonim",
+    draftInfo: "Draft disimpan di browser ini, termasuk kontak Anda.",
+    draftError: "Draft tidak dapat dibaca atau disimpan di browser ini.",
+    sendError: "Gagal mengirim feedback.",
+    systemError: "Terjadi kesalahan sistem saat mengirim feedback.",
     feedbackSuccess:
       "Terima kasih! Saran & kritik Anda telah terkirim kepada developer.",
     close: "Tutup",
@@ -33,6 +53,7 @@ const TRANSLATIONS = {
       "Kotori is built to make reading Japanese easier. Share feature ideas, report bugs, or send appreciation to the developer!",
     catBug: "Report Bug",
     catIdea: "New Feature Idea",
+    catDictionary: "Dictionary Error",
     catLove: "Appreciation / Other",
     msgPlaceholder:
       "Write your suggestion, feedback, or bug report details here...",
@@ -40,6 +61,16 @@ const TRANSLATIONS = {
       "Optional: Your IG / TikTok handle or email if you'd like a reply",
     sendBtn: "Send Feedback",
     sendingBtn: "Sending...",
+    previewBtn: "Preview Feedback",
+    editBtn: "Back to Editing",
+    previewTitle: "Feedback Preview",
+    previewMessage: "Message",
+    previewContact: "Contact",
+    anonymous: "Anonymous",
+    draftInfo: "Your draft, including contact details, is saved in this browser.",
+    draftError: "The draft could not be read or saved in this browser.",
+    sendError: "Failed to send feedback.",
+    systemError: "A system error occurred while sending feedback.",
     feedbackSuccess: "Thank you! Your feedback has been sent to the developer.",
     close: "Close",
   },
@@ -51,20 +82,49 @@ export function FeedbackModal({
   language,
   onToast,
 }: FeedbackModalProps) {
-  const [category, setCategory] = useState<"idea" | "bug" | "love">("idea");
-  const [message, setMessage] = useState("");
-  const [contact, setContact] = useState("");
+  const [draft, setDraft] = useState<FeedbackDraft>(emptyFeedbackDraft);
+  const [draftError, setDraftError] = useState(false);
+  const [isPreview, setIsPreview] = useState(false);
   const [hpWebsite, setHpWebsite] = useState("");
   const [openedAt, setOpenedAt] = useState<number>(Date.now());
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [isSending, setIsSending] = useState(false);
 
   const t = TRANSLATIONS[language];
+  const { category, message, contact } = draft;
+  const preview = getFeedbackPreview(draft);
+  const categoryLabels = {
+    idea: t.catIdea,
+    bug: t.catBug,
+    dictionary: t.catDictionary,
+    love: t.catLove,
+  };
+
+  useEffect(() => {
+    try {
+      setDraft(readFeedbackDraft(localStorage));
+    } catch (error) {
+      console.error("Failed to restore feedback draft:", error);
+      setDraftError(true);
+    }
+  }, []);
+
+  const updateDraft = (next: FeedbackDraft) => {
+    setDraft(next);
+    try {
+      saveFeedbackDraft(localStorage, next);
+      setDraftError(false);
+    } catch (error) {
+      console.error("Failed to save feedback draft:", error);
+      setDraftError(true);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
     setOpenedAt(Date.now());
     setHpWebsite("");
+    setIsPreview(false);
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -73,12 +133,17 @@ export function FeedbackModal({
   }, [isOpen, onClose]);
   useEffect(() => {
     if (!isOpen) return;
-    const lastSent = Number(localStorage.getItem("kotori_last_feedback_time") || 0);
-    const elapsed = Math.floor((Date.now() - lastSent) / 1000);
-    if (elapsed < 45) {
-      setCooldownSeconds(45 - elapsed);
-    } else {
-      setCooldownSeconds(0);
+    try {
+      const lastSent = Number(localStorage.getItem("kotori_last_feedback_time") || 0);
+      const elapsed = Math.floor((Date.now() - lastSent) / 1000);
+      if (elapsed < 45) {
+        setCooldownSeconds(45 - elapsed);
+      } else {
+        setCooldownSeconds(0);
+      }
+    } catch (error) {
+      console.error("Failed to read feedback cooldown:", error);
+      setDraftError(true);
     }
   }, [isOpen]);
 
@@ -117,19 +182,31 @@ export function FeedbackModal({
       });
 
       if (res.ok) {
-        localStorage.setItem("kotori_last_feedback_time", String(Date.now()));
+        const result = await res.json();
+        if (result.processed === false) {
+          onToast(t.sendError, "error");
+          return;
+        }
         setCooldownSeconds(45);
         onToast(t.feedbackSuccess, "success");
-        setMessage("");
-        setContact("");
+        try {
+          localStorage.setItem("kotori_last_feedback_time", String(Date.now()));
+          clearFeedbackDraft(localStorage);
+          setDraft(emptyFeedbackDraft());
+          setDraftError(false);
+        } catch (error) {
+          console.error("Failed to clear feedback draft:", error);
+          setDraftError(true);
+          onToast(t.draftError, "error");
+        }
         onClose();
       } else {
         const data = await res.json().catch(() => ({}));
-        onToast(data.error || "Gagal mengirim feedback", "error");
+        onToast(data.error || t.sendError, "error");
       }
     } catch (err) {
       console.error(err);
-      onToast("Terjadi kesalahan sistem saat mengirim feedback", "error");
+      onToast(t.systemError, "error");
     } finally {
       setIsSending(false);
     }
@@ -210,10 +287,13 @@ export function FeedbackModal({
           {t.feedbackDesc}
         </p>
 
+        {!isPreview ? (
+        <>
         {/* Category selector */}
         <div
           style={{
-            display: "flex",
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
             padding: "4px",
             backgroundColor: "var(--kb-bg-secondary)",
             borderRadius: "14px",
@@ -222,19 +302,21 @@ export function FeedbackModal({
             marginBottom: "20px",
           }}
         >
-          {(["idea", "bug", "love"] as const).map((cat) => {
-            const label =
-              cat === "bug" ? t.catBug : cat === "idea" ? t.catIdea : t.catLove;
+          {FEEDBACK_CATEGORIES.map((cat) => {
+            const label = categoryLabels[cat];
             const isActive = category === cat;
 
             let CategoryIcon = Sparkles;
             if (cat === "bug") CategoryIcon = ShieldAlert;
+            if (cat === "dictionary") CategoryIcon = BookOpen;
             if (cat === "love") CategoryIcon = Heart;
 
             return (
               <button
                 key={cat}
-                onClick={() => setCategory(cat)}
+                onClick={() => updateDraft({ ...draft, category: cat })}
+                disabled={isSending}
+                aria-pressed={isActive}
                 className="kb-feedback-category-btn"
                 style={{
                   flex: 1,
@@ -274,7 +356,10 @@ export function FeedbackModal({
         {/* Message textarea */}
         <textarea
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => updateDraft({ ...draft, message: e.target.value })}
+          maxLength={1000}
+          disabled={isSending}
+          aria-label={t.previewMessage}
           placeholder={t.msgPlaceholder}
           className="kb-premium-input"
           style={{
@@ -297,7 +382,10 @@ export function FeedbackModal({
         <input
           type="text"
           value={contact}
-          onChange={(e) => setContact(e.target.value)}
+          onChange={(e) => updateDraft({ ...draft, contact: e.target.value })}
+          maxLength={100}
+          disabled={isSending}
+          aria-label={t.previewContact}
           placeholder={t.contactPlaceholder}
           className="kb-premium-input"
           style={{
@@ -313,6 +401,28 @@ export function FeedbackModal({
           }}
         />
 
+        </>
+        ) : (
+          <div style={{ marginBottom: "20px", overflowWrap: "anywhere" }}>
+            <h3>{t.previewTitle}</h3>
+            <p><strong>{categoryLabels[preview.category]}</strong></p>
+            <p><strong>{t.previewMessage}:</strong></p>
+            <p style={{ whiteSpace: "pre-wrap" }}>{preview.message}</p>
+            <p><strong>{t.previewContact}:</strong> {preview.contact || t.anonymous}</p>
+          </div>
+        )}
+        <p role={draftError ? "alert" : undefined} style={{ fontSize: "12px", color: "var(--kb-text-secondary)", marginBottom: "12px" }}>
+          {draftError ? t.draftError : t.draftInfo}
+        </p>
+        <button
+          type="button"
+          onClick={() => setIsPreview(!isPreview)}
+          disabled={isSending || (!isPreview && !message.trim())}
+          className="kb-premium-input"
+          style={{ width: "100%", padding: "12px", marginBottom: "12px", cursor: "pointer" }}
+        >
+          {isPreview ? t.editBtn : t.previewBtn}
+        </button>
         {/* Send button */}
         <button
           onClick={handleSend}
