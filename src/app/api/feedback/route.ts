@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getFeedbackCategoryLabel } from "@/lib/feedback";
 
 // In-memory rate limiting with cooldown & capacity throttling
 interface FeedbackRateRecord {
@@ -119,12 +120,7 @@ export async function POST(request: Request) {
     const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
     const telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
-    const categoryLabel =
-      category === "bug"
-        ? "🐞 Lapor Bug / Error"
-        : category === "idea"
-        ? "💡 Ide Fitur Baru"
-        : "❤️ Apresiasi / Lainnya";
+    const categoryLabel = getFeedbackCategoryLabel(category);
 
     const timestamp = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
@@ -136,7 +132,7 @@ export async function POST(request: Request) {
           embeds: [
             {
               title: `Kotori Feedback: ${categoryLabel}`,
-              color: category === "bug" ? 14423100 : category === "idea" ? 65280 : 16738740,
+              color: category === "bug" || category === "dictionary" ? 14423100 : category === "idea" ? 65280 : 16738740,
               fields: [
                 {
                   name: "📝 Pesan",

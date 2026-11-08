@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { BookOpen, FileText, MoreVertical, RotateCcw, Trash2, User } from "lucide-react";
 import { formatFileSize } from "@/lib/utils";
+import { computeProgressPercent } from "@/lib/reader/progress";
 import type { BookMeta, ReadingProgress } from "@/types/book";
 import type { TranslationType } from "@/data/translations";
 
@@ -40,10 +41,10 @@ export function BookCard({
   }, [showMenu]);
 
   const progressPercent = progress
-    ? Math.round(
-      ((progress.chapterIndex + progress.scrollPosition) /
-        Math.max(book.totalChapters, 1)) *
-      100
+    ? computeProgressPercent(
+      progress.chapterIndex,
+      progress.scrollPosition,
+      book.totalChapters
     )
     : 0;
 

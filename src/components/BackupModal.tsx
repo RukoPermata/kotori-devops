@@ -24,6 +24,7 @@ import {
   type BackupInspectionResult,
 } from "@/services/backup-service";
 import type { BookMeta, ReadingProgress } from "@/types/book";
+import { computeProgressPercent } from "@/lib/reader/progress";
 
 interface BackupModalProps {
   isOpen: boolean;
@@ -667,12 +668,10 @@ export function BackupModal({
                     const isChecked = selectedExportIds.has(book.id);
                     const prog = currentProgresses[book.id];
                     const percent = prog
-                      ? Math.min(
-                          100,
-                          Math.round(
-                            ((prog.chapterIndex + prog.scrollPosition) / Math.max(book.totalChapters, 1)) *
-                              100
-                          )
+                      ? computeProgressPercent(
+                          prog.chapterIndex,
+                          prog.scrollPosition,
+                          book.totalChapters
                         )
                       : 0;
 
@@ -1193,13 +1192,10 @@ export function BackupModal({
                           ? chapter.title
                           : `${language === "ID" ? "Bab" : "Chapter"} ${chIdx + 1}`;
                         const backupPercent = prog
-                          ? Math.min(
-                              100,
-                              Math.round(
-                                ((prog.chapterIndex + prog.scrollPosition) /
-                                  Math.max(book.totalChapters, 1)) *
-                                  100
-                              )
+                          ? computeProgressPercent(
+                              prog.chapterIndex,
+                              prog.scrollPosition,
+                              book.totalChapters
                             )
                           : 0;
 
@@ -1229,13 +1225,10 @@ export function BackupModal({
                         }
 
                         const localPercent = localProg
-                          ? Math.min(
-                              100,
-                              Math.round(
-                                ((localProg.chapterIndex + localProg.scrollPosition) /
-                                  Math.max(localBook!.totalChapters, 1)) *
-                                  100
-                              )
+                          ? computeProgressPercent(
+                              localProg.chapterIndex,
+                              localProg.scrollPosition,
+                              localBook!.totalChapters
                             )
                           : 0;
 
