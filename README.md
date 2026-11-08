@@ -57,7 +57,12 @@ The repository inherits the following features from the original Kotori applicat
 - Backup and restoration of books, settings, and reading progress.
 - Validation and sanitization during restoration.
 
-These features describe the inherited application. Additional features and modifications made for the DevOps assignment will be documented separately as they are implemented.
+### 6. Feedback
+- Feedback drafts (category, message, and optional contact) are saved in the current browser and restored after a refresh. Avoid entering sensitive information on shared devices.
+- Preview a message before sending, and select the dictionary-error category for incorrect dictionary entries.
+- Drafts are removed after the server accepts the feedback; failed submissions keep the draft. Local development logs feedback when no notification service is configured.
+
+The reader, dictionary, and backup features above are inherited from the original application; the feedback improvements are part of the DevOps assignment.
 
 ## Technology Stack
 
