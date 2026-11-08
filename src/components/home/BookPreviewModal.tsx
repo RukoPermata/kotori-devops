@@ -3,6 +3,7 @@
 import React from "react";
 import { BookOpen, User, X } from "lucide-react";
 import type { BookMeta, Chapter, ReadingProgress } from "@/types/book";
+import { computeProgressPercent } from "@/lib/reader/progress";
 
 export interface BookPreviewModalProps {
   previewBook: BookMeta | null;
@@ -32,10 +33,10 @@ export function BookPreviewModal({
   if (!previewBook || previewPhase === "none") return null;
 
   const progressPercent = progress
-    ? Math.round(
-      ((progress.chapterIndex + progress.scrollPosition) /
-        Math.max(previewBook.totalChapters, 1)) *
-      100
+    ? computeProgressPercent(
+      progress.chapterIndex,
+      progress.scrollPosition,
+      previewBook.totalChapters
     )
     : 0;
 
