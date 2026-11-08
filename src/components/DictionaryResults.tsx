@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useRef, type ReactElement } from "react";
-import { X, Volume2, Puzzle, ChevronDown } from "lucide-react";
+import { X, Volume2, Puzzle, ChevronDown, Bookmark, BookmarkCheck } from "lucide-react";
 import { LookupResult } from "@/services/dictionary-service";
+import { useDictionaryStore } from "@/stores/dictionary-store";
+import { generateVocabularyId } from "@/services/vocabulary-service";
 
 interface DictionaryResultsProps {
   selectedText: string;
@@ -338,6 +340,10 @@ export function DictionaryResults({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const vocabularyList = useDictionaryStore((s) => s.vocabularyList);
+  const addBookmark = useDictionaryStore((s) => s.addBookmark);
+  const removeBookmark = useDictionaryStore((s) => s.removeBookmark);
+
   // `selectedText` is a padded chunk (not an exact word) whenever it came from the click/hover
   // scanner - `chunkPos` marks the cursor's position within it, so the server resolves just that
   // one word instead of everything it can segment out of the padded chunk.
@@ -509,6 +515,26 @@ export function DictionaryResults({
 
   const allRawTerms = lookupData?.terms || [];
 
+  const primaryTerm = allRawTerms[0];
+  const bookmarkId = primaryTerm ? generateVocabularyId(primaryTerm.expression, primaryTerm.reading || "") : "";
+  const isBookmarked = vocabularyList.some((item) => item.id === bookmarkId);
+
+  const handleToggleBookmark = () => {
+    if (!primaryTerm) return;
+    if (isBookmarked) {
+      removeBookmark(bookmarkId);
+    } else {
+      addBookmark({
+        expression: primaryTerm.expression,
+        reading: primaryTerm.reading || "",
+        meanings: primaryTerm.meanings || [],
+        tags: primaryTerm.tags || [],
+        jlpt: primaryTerm.jlpt,
+      });
+    }
+  };
+
+
   // selectedText is a padded chunk (not the exact word) for click/hover lookups - once the server
   // resolves the single word under the cursor, display THAT as the headword instead of the raw chunk.
   const resolvedExpression = isChunkLookup && !isLoading ? allRawTerms[0]?.expression : undefined;
@@ -655,6 +681,35 @@ export function DictionaryResults({
           >
             <Volume2 style={{ width: "15px", height: "15px" }} className={isPlayingAudio ? "animate-pulse" : ""} />
           </button>
+
+          {primaryTerm && (
+            <button
+              onClick={handleToggleBookmark}
+              title={isBookmarked ? "Hapus dari kosakata favorit" : "Simpan ke kosakata favorit"}
+              style={{
+                borderRadius: "50%",
+                width: "30px",
+                height: "30px",
+                backgroundColor: isBookmarked ? "rgba(245, 158, 11, 0.2)" : colors.voiceBg,
+                border: `1px solid ${isBookmarked ? "#f59e0b" : colors.voiceBorder}`,
+                color: isBookmarked ? "#f59e0b" : colors.voiceColor,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                flexShrink: 0,
+                transition: "all 0.15s ease",
+              }}
+              onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.92)")}
+              onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            >
+              {isBookmarked ? (
+                <BookmarkCheck style={{ width: "15px", height: "15px" }} />
+              ) : (
+                <Bookmark style={{ width: "15px", height: "15px" }} />
+              )}
+            </button>
+          )}
 
           <button
             onClick={onClose}
