@@ -1,6 +1,7 @@
 "use client";
 
-import { X, BookOpen, Check } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, BookOpen, Check, Search } from "lucide-react";
 import type { Chapter } from "@/types/book";
 
 interface TableOfContentsProps {
@@ -16,6 +17,57 @@ export default function TableOfContents({
   onSelect,
   onClose,
 }: TableOfContentsProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredChapters = chapters
+    .map((chapter, index) => ({ chapter, originalIndex: index }))
+    .filter(({ chapter, originalIndex }) => {
+      if (searchQuery.trim() === "") return true;
+      
+      const isNumber = /^\d+$/.test(searchQuery.trim());
+      if (isNumber) {
+        return (originalIndex + 1).toString().startsWith(searchQuery.trim());
+      }
+      
+      return chapter.title.toLowerCase().includes(searchQuery.toLowerCase());
+    });
+
+
+  useEffect(() => {
+    setFocusedIndex(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusedIndex((prev) => (prev < filteredChapters.length - 1 ? prev + 1 : prev));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (filteredChapters.length > 0) {
+          onSelect(filteredChapters[focusedIndex].originalIndex);
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [filteredChapters, focusedIndex, onSelect, onClose]);
+
   return (
     <>
       {/* Backdrop */}
@@ -46,7 +98,7 @@ export default function TableOfContents({
           borderRight: "1px solid var(--kb-border)",
           boxShadow: "8px 0 36px rgba(0,0,0,0.2)",
           color: "var(--kb-text)",
-          overflowY: "auto",
+          overflowY: "hidden",
         }}
       >
         {/* Header */}
@@ -106,10 +158,34 @@ export default function TableOfContents({
           </button>
         </div>
 
+        {/* Search Bar (Fitur Pencarian & Jump) */}
+        <div style={{ padding: "12px 24px", backgroundColor: "var(--kb-bg-secondary)", borderBottom: "1px solid var(--kb-border-subtle)", flexShrink: 0 }}>
+          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <Search style={{ position: "absolute", left: "12px", width: "16px", height: "16px", color: "var(--kb-text-muted)" }} />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search title or jump to number (e.g. 15)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px 10px 36px",
+                borderRadius: "8px",
+                border: "1px solid var(--kb-border)",
+                backgroundColor: "var(--kb-surface)",
+                color: "var(--kb-text)",
+                fontSize: "13px",
+                outline: "none",
+              }}
+            />
+          </div>
+        </div>
+
         {/* Subheader */}
         <div
           style={{
-            padding: "12px 24px",
+            padding: "8px 24px",
             fontSize: "11px",
             fontWeight: 800,
             letterSpacing: "0.05em",
@@ -120,17 +196,19 @@ export default function TableOfContents({
             flexShrink: 0,
           }}
         >
-          {chapters.length} {chapters.length === 1 ? "Chapter" : "Chapters"}
+          {filteredChapters.length} {filteredChapters.length === 1 ? "Result" : "Results"}
         </div>
 
         {/* Chapter List */}
         <div style={{ padding: "12px", flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
-          {chapters.map((chapter, index) => {
-            const isActive = index === currentIndex;
+          {filteredChapters.map(({ chapter, originalIndex }, arrayIndex) => {
+            const isCurrentChapter = originalIndex === currentIndex;
+            const isFocused = arrayIndex === focusedIndex;
+
             return (
               <button
                 key={chapter.id}
-                onClick={() => onSelect(index)}
+                onClick={() => onSelect(originalIndex)}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -139,21 +217,18 @@ export default function TableOfContents({
                   padding: "12px 16px",
                   textAlign: "left",
                   fontSize: "14px",
-                  fontWeight: isActive ? 700 : 500,
-                  backgroundColor: isActive ? "var(--kb-primary-light)" : "transparent",
-                  color: isActive ? "var(--kb-primary)" : "var(--kb-text)",
-                  border: isActive ? "1px solid var(--kb-primary)" : "1px solid transparent",
+                  fontWeight: isCurrentChapter ? 700 : 500,
+                  // Ubah warna background jika sedang di-hover oleh keyboard
+                  backgroundColor: isCurrentChapter ? "var(--kb-primary-light)" : isFocused ? "var(--kb-surface-hover)" : "transparent",
+                  color: isCurrentChapter ? "var(--kb-primary)" : "var(--kb-text)",
+                  // Tambahkan border khusus jika di-highlight keyboard
+                  border: isFocused ? "1px solid var(--kb-primary-light)" : isCurrentChapter ? "1px solid var(--kb-primary)" : "1px solid transparent",
                   cursor: "pointer",
                   transition: "all 0.15s ease",
                   width: "100%",
                   boxSizing: "border-box",
                 }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.backgroundColor = "var(--kb-surface-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.backgroundColor = "transparent";
-                }}
+                onMouseEnter={() => setFocusedIndex(arrayIndex)}
               >
                 <span
                   style={{
@@ -167,11 +242,11 @@ export default function TableOfContents({
                     fontSize: "12px",
                     fontWeight: 700,
                     fontFamily: "monospace",
-                    backgroundColor: isActive ? "var(--kb-primary)" : "var(--kb-bg-secondary)",
-                    color: isActive ? "white" : "var(--kb-text-muted)",
+                    backgroundColor: isCurrentChapter ? "var(--kb-primary)" : "var(--kb-bg-secondary)",
+                    color: isCurrentChapter ? "white" : "var(--kb-text-muted)",
                   }}
                 >
-                  {index + 1}
+                  {originalIndex + 1}
                 </span>
 
                 <span
@@ -185,7 +260,7 @@ export default function TableOfContents({
                   {chapter.title}
                 </span>
 
-                {isActive && (
+                {isCurrentChapter && (
                   <Check
                     style={{
                       width: "16px",
@@ -200,6 +275,12 @@ export default function TableOfContents({
               </button>
             );
           })}
+          
+          {filteredChapters.length === 0 && (
+            <div style={{ padding: "24px", textAlign: "center", color: "var(--kb-text-muted)", fontSize: "13px" }}>
+              Chapter tidak ditemukan.
+            </div>
+          )}
         </div>
       </div>
     </>
