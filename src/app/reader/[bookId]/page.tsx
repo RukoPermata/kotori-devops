@@ -43,6 +43,11 @@ import {
   usesNegativeScrollLeft,
   getPlainTextLength,
 } from "@/lib/reader/reader-helpers";
+import {
+  charsPerMinute,
+  estimateRemainingMinutes,
+  formatDuration,
+} from "@/lib/reader/reading-session";
 
 // Temporary instrumentation for reading-position save/restore path.
 const DEBUG_PROGRESS = false;
@@ -193,6 +198,31 @@ export default function ReaderPage() {
     () => chapters.map((c) => getPlainTextLength(c.htmlContent)),
     [chapters]
   );
+
+  // Reading-pace samples: cumulative characters read paired with the time they were observed.
+  // Kept in a ref so the sampling cadence never causes a re-render; the estimate is derived from
+  // these samples and the current position when the progress badge renders.
+  const readingSamplesRef = useRef<Array<{ charsRead: number; timestamp: number }>>([]);
+  const chapterCharsRead = useMemo(() => {
+    const before = chapterCharCounts.slice(0, currentChapterIndex).reduce((a, b) => a + b, 0);
+    const current = chapterCharCounts[currentChapterIndex] ?? 0;
+    return Math.round(before + current * chapterScrollRatio);
+  }, [chapterCharCounts, currentChapterIndex, chapterScrollRatio]);
+
+  useEffect(() => {
+    readingSamplesRef.current = [];
+  }, [book?.id]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    const samples = readingSamplesRef.current;
+    const last = samples[samples.length - 1];
+    const now = Date.now();
+    if (!last || now - last.timestamp >= 5000) {
+      samples.push({ charsRead: chapterCharsRead, timestamp: now });
+      if (samples.length > 30) samples.shift();
+    }
+  }, [chapterCharsRead, isLoaded]);
   const getScrollPosition = useCallback((): number => {
     const el = contentRef.current;
     if (!el) return 0;
@@ -1347,6 +1377,11 @@ export default function ReaderPage() {
   const currentCharPosition = Math.round(charsBeforeChapter + currentChapterChars * inChapterProgress);
   const bookPercent = totalBookChars > 0 ? (currentCharPosition / totalBookChars) * 100 : 0;
   const progressPercent = Math.round(bookPercent);
+  const readingPace = charsPerMinute(readingSamplesRef.current);
+  const remainingReadMinutes = estimateRemainingMinutes(
+    totalBookChars - currentCharPosition,
+    readingPace
+  );
 
   return (
     <div
@@ -2139,6 +2174,9 @@ export default function ReaderPage() {
           }}
         >
           {currentCharPosition} / {totalBookChars} &nbsp; {bookPercent.toFixed(2)}%
+          {remainingReadMinutes !== null && remainingReadMinutes > 0 && (
+            <span> &nbsp;·&nbsp; ≈ {formatDuration(remainingReadMinutes, language)}</span>
+          )}
         </div>
       )}
 
