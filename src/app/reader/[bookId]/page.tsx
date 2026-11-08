@@ -46,6 +46,7 @@ import {
   getFontSizeForShortcut,
   readerFocusReducer,
 } from "@/lib/reader/reader-helpers";
+import { computeBookProgress } from "@/lib/reader/progress";
 
 // Temporary instrumentation for reading-position save/restore path.
 const DEBUG_PROGRESS = false;
@@ -1362,12 +1363,15 @@ export default function ReaderPage() {
     : true;
   const inChapterProgress = isChapterScrollable ? normalizedChapterRatio : 1;
 
-  const totalBookChars = chapterCharCounts.reduce((a, b) => a + b, 0);
-  const charsBeforeChapter = chapterCharCounts.slice(0, currentChapterIndex).reduce((a, b) => a + b, 0);
-  const currentChapterChars = chapterCharCounts[currentChapterIndex] ?? 0;
-  const currentCharPosition = Math.round(charsBeforeChapter + currentChapterChars * inChapterProgress);
-  const bookPercent = totalBookChars > 0 ? (currentCharPosition / totalBookChars) * 100 : 0;
-  const progressPercent = Math.round(bookPercent);
+  const bookProgress = computeBookProgress({
+    chapterCharCounts,
+    chapterIndex: currentChapterIndex,
+    inChapterRatio: inChapterProgress,
+  });
+  const totalBookChars = bookProgress.totalChars;
+  const currentCharPosition = bookProgress.charsRead;
+  const bookPercent = bookProgress.exactPercent;
+  const progressPercent = bookProgress.percent;
 
   return (
     <div
