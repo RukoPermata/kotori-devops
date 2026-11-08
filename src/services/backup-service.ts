@@ -7,6 +7,7 @@ import {
   validateZipArchive,
   validateDecompressedSize,
   validateCollectionLimits,
+  validateStructure,
   BackupValidationError,
 } from "./backup-validation.ts";
 
@@ -220,6 +221,24 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
 
       validateCollectionLimits({ books, chapters });
 
+      const structure = validateStructure({
+        books,
+        chapters,
+        progress,
+        settings,
+        metadata,
+      });
+
+      if (!structure.isValid) {
+        return {
+          isValid: false,
+          books: [],
+          chapters: [],
+          progress: [],
+          error: structure.error,
+        };
+      }
+
       return {
         isValid: true,
         metadata,
@@ -246,15 +265,39 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
     const parsed = JSON.parse(text);
 
     if (Array.isArray(parsed.books)) {
-      validateCollectionLimits({ books: parsed.books, chapters: parsed.chapters });
+      const books = (parsed.books ?? []) as BookMeta[];
+      const chapters = (parsed.chapters ?? []) as Chapter[];
+      const progress = (parsed.progress ?? []) as ReadingProgress[];
+      const settings = parsed.settings?.reader as ReaderSettings | undefined;
+      const metadata = parsed.metadata as BackupMetadata | undefined;
+
+      validateCollectionLimits({ books, chapters });
+
+      const structure = validateStructure({
+        books,
+        chapters,
+        progress,
+        settings,
+        metadata,
+      });
+
+      if (!structure.isValid) {
+        return {
+          isValid: false,
+          books: [],
+          chapters: [],
+          progress: [],
+          error: structure.error,
+        };
+      }
 
       return {
         isValid: true,
-        metadata: parsed.metadata,
-        books: parsed.books || [],
-        chapters: parsed.chapters || [],
-        progress: parsed.progress || [],
-        settings: parsed.settings?.reader,
+        metadata,
+        books,
+        chapters,
+        progress,
+        settings,
         preferences: parsed.settings?.app,
       };
     }

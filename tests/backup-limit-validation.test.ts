@@ -300,8 +300,26 @@ test("inspectBackupFile Integration: Limit validation triggers during backup ins
 
   // 5. Valid zip inspection
   const validZip = new JSZip();
-  validZip.file("books.json", JSON.stringify([{ id: "b1", title: "Test Book" }]));
-  validZip.file("chapters.json", JSON.stringify([{ id: "c1", bookId: "b1", title: "Ch1", htmlContent: "<p>Hello</p>" }]));
+  const validBook = {
+    id: "b1",
+    title: "Test Book",
+    author: "Test Author",
+    language: "ja",
+    coverUrl: null,
+    fileSize: 1024,
+    totalChapters: 1,
+    uploadedAt: 1700000000000,
+    lastReadAt: null,
+  };
+  const validChapter = {
+    id: "c1",
+    bookId: "b1",
+    index: 0,
+    title: "Ch1",
+    htmlContent: "<p>Hello</p>",
+  };
+  validZip.file("books.json", JSON.stringify([validBook]));
+  validZip.file("chapters.json", JSON.stringify([validChapter]));
   const validZipBuffer = await validZip.generateAsync({ type: "uint8array" });
   const validFile = new File([validZipBuffer as unknown as BlobPart], "valid.kotori", { type: "application/zip" });
   const validResult = await inspectBackupFile(validFile);
@@ -334,9 +352,16 @@ test("inspectBackupFile Integration: Limit validation triggers during backup ins
 
   // 8. Raw JSON backup inspection (valid and limit violation)
   const validJsonContent = JSON.stringify({
-    metadata: { appName: "Kotori", version: "1.2.0" },
-    books: [{ id: "b1", title: "JSON Book" }],
-    chapters: [{ id: "c1", bookId: "b1", title: "Ch1", htmlContent: "test" }],
+    metadata: {
+      appName: "Kotori",
+      version: "1.2.0",
+      exportedAt: "2026-11-08T12:00:00.000Z",
+      totalBooks: 1,
+      totalChapters: 1,
+      totalProgress: 0,
+    },
+    books: [{ ...validBook, title: "JSON Book" }],
+    chapters: [{ ...validChapter, htmlContent: "test" }],
   });
   const validJsonFile = new File([validJsonContent], "backup.json", { type: "application/json" });
   const validJsonResult = await inspectBackupFile(validJsonFile);
