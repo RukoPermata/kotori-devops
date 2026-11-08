@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pusepuh - Make a New Thread</title>
+</head>
+<body>
+   
+    <header>
+        <nav aria-label="Menu Ikon">
+            <a href="index.html">
+                <img src="image/ikon-home.png" alt="Kembali ke Beranda Utama" width="30">
+            </a>
+        </nav>
+        
+        <h1>Make a New Thread</h1>
+      
+        <hr>
+    </header>
+
+
+    <main>
+      
+        <form action="proses-upload.html" method="POST" enctype="multipart/form-data">
+            
+         
+            <div>
+                <label for="judul-thread">Judul Karya / Topik:</label><br>
+             
+                <input type="text" id="judul-thread" name="judul" required placeholder="Tuliskan judul semenarik mungkin..." size="40">
+            </div>
+            <br>
+
+      
+            <div>
+                <label for="kategori-board">Pilih Board (Kategori):</label><br>
+                <select id="kategori-board" name="kategori" required>
+                    <option value="">-- Silakan Pilih Kategori --</option>
+                    <option value="g">/g/ - Gambar</option>
+                    <option value="k">/k/ - Krisar (Kritik & Saran)</option>
+                    <option value="t">/t/ - Tanya</option>
+                    <option value="h">/h/ - Hobi (Anime, Game)</option>
+                    <option value="q">/q/ - Site Feedback</option>
+                    <option value="r">/r/ - Random</option>
+                </select>
+            </div>
+            <br>
+
+     
+            <div>
+                <label for="file-gambar">Unggah Gambar (Opsional):</label><br>
+                <input type="file" id="file-gambar" name="gambar" accept="image/*">
+            </div>
+            <br>
+
+      
+            <div>
+                <label for="isi-thread">Deskripsi / Caption:</label><br>
+                <textarea id="isi-thread" name="isi" rows="6" cols="50" required placeholder="Ceritakan detail karyamu atau apa yang ingin kamu tanyakan di sini..."></textarea>
+            </div>
+            <br>
+
+          
+            <div>
+                <button type="submit">Unggah Thread</button>
+                <button type="reset">Batal</button>
+            </div>
+
+        </form>
+    </main>
+
+    <br>
+    
+ 
+    <footer>
+        <hr>
+      
+    </footer>
+</body>
+</html>
