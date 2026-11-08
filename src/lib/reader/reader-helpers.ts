@@ -2,7 +2,8 @@
  * Reader DOM, Range, and Text helper utilities.
  */
 
-import { countReadableChars } from "@/lib/text/html-text";
+import { countReadableChars } from "../text/html-text.ts";
+
 export function adjustReaderFontSize(fontSize: number, delta: number): number {
   return Math.max(12, Math.min(36, fontSize + delta));
 }
