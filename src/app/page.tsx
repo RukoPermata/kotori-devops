@@ -50,6 +50,11 @@ import { BookCard } from "@/components/home/BookCard";
 import { BookPreviewModal } from "@/components/home/BookPreviewModal";
 import { InstallPromptButton } from "@/components/InstallPromptButton";
 import { TRANSLATIONS } from "@/data/translations";
+import {
+  computeLibraryStats,
+  computeReadingStreak,
+  dayKey,
+} from "@/lib/reader/reading-stats";
 // Deferred out of the initial bundle - most page loads never open the search modal or upload a
 // book, so their code (plus dictionary-service.ts / jszip+dompurify respectively) shouldn't ship
 // on every visit.
@@ -318,6 +323,25 @@ export default function HomePage() {
   };
 
   const t = TRANSLATIONS[language];
+
+  const libraryStats = useMemo(
+    () => computeLibraryStats(books, progresses),
+    [books, progresses]
+  );
+  const readingStreak = useMemo(() => {
+    const offsetMinutes = -new Date().getTimezoneOffset();
+    const timestamps = [
+      ...books.map((book) => book.lastReadAt),
+      ...Object.values(progresses).map((progress) => progress?.lastReadAt),
+    ].filter(
+      (timestamp): timestamp is number =>
+        typeof timestamp === "number" && Number.isFinite(timestamp)
+    );
+    return computeReadingStreak(
+      timestamps.map((timestamp) => dayKey(timestamp, offsetMinutes)),
+      dayKey(Date.now(), offsetMinutes)
+    );
+  }, [books, progresses]);
 
   const loadBooks = async () => {
     try {
@@ -1879,6 +1903,52 @@ export default function HomePage() {
               </option>
             </select>
           </div>
+        )}
+
+        {/* Library Reading Statistics */}
+        {!isLoading && books.length > 0 && !searchQuery && (
+          <section
+            aria-label={t.statsTitle}
+            style={{
+              marginBottom: "32px",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            {[
+              { label: t.booksFinished, value: String(libraryStats.finishedBooks) },
+              { label: t.booksInProgress, value: String(libraryStats.inProgressBooks) },
+              { label: t.booksUnread, value: String(libraryStats.unreadBooks) },
+              { label: t.averageProgress, value: `${libraryStats.averageProgress}%` },
+              {
+                label: t.readingStreakLabel,
+                value: readingStreak.current > 0
+                  ? t.readingStreak(readingStreak.current)
+                  : t.noStreak,
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  backgroundColor: "var(--kb-surface)",
+                  border: "1px solid var(--kb-border-subtle)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                <span style={{ fontSize: "18px", fontWeight: 800, letterSpacing: "-0.01em" }}>
+                  {item.value}
+                </span>
+                <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--kb-text-muted)" }}>
+                  {item.label}
+                </span>
+              </div>
+            ))}
+          </section>
         )}
 
         {/* Continue Reading Section */}
