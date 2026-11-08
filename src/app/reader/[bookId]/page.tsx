@@ -1393,17 +1393,6 @@ export default function ReaderPage() {
     : true;
   const inChapterProgress = isChapterScrollable ? normalizedChapterRatio : 1;
 
-  const totalBookChars = chapterCharCounts.reduce((a, b) => a + b, 0);
-  const charsBeforeChapter = chapterCharCounts.slice(0, currentChapterIndex).reduce((a, b) => a + b, 0);
-  const currentChapterChars = chapterCharCounts[currentChapterIndex] ?? 0;
-  const currentCharPosition = Math.round(charsBeforeChapter + currentChapterChars * inChapterProgress);
-  const bookPercent = totalBookChars > 0 ? (currentCharPosition / totalBookChars) * 100 : 0;
-  const progressPercent = Math.round(bookPercent);
-  const readingPace = charsPerMinute(readingSamplesRef.current);
-  const remainingReadMinutes = estimateRemainingMinutes(
-    totalBookChars - currentCharPosition,
-    readingPace
-  );
   const bookProgress = computeBookProgress({
     chapterCharCounts,
     chapterIndex: currentChapterIndex,
@@ -1413,6 +1402,11 @@ export default function ReaderPage() {
   const currentCharPosition = bookProgress.charsRead;
   const bookPercent = bookProgress.exactPercent;
   const progressPercent = bookProgress.percent;
+  const readingPace = charsPerMinute(readingSamplesRef.current);
+  const remainingReadMinutes = estimateRemainingMinutes(
+    totalBookChars - currentCharPosition,
+    readingPace
+  );
 
   return (
     <div
