@@ -1,0 +1,97 @@
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kotori.kaisaaru.dev";
+const SITE_NAME = "Kotori";
+const SITE_TITLE = "Kotori: Japanese Light Novel & EPUB Reader";
+const SITE_DESCRIPTION =
+  "The all-in-one Japanese reading platform. Upload EPUB novels and read with built-in dictionary, grammar analysis, and instant lookup.";
+
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  keywords: [
+    "Japanese",
+    "novel",
+    "reader",
+    "EPUB",
+    "dictionary",
+    "learning",
+    "AI",
+  ],
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  verification: {
+    google: "googlef3304400c77dbd96",
+  },
+};
+
+const softwareAppJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE_NAME,
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "Any",
+  url: SITE_URL,
+  description: SITE_DESCRIPTION,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+};
+
+import { BackgroundServices } from "@/components/BackgroundServices";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={inter.variable}
+    >
+      <head>
+        <link rel="icon" href="/icon.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/icon.png" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareAppJsonLd) }}
+        />
+      </head>
+      <body className="min-h-screen antialiased">
+        <BackgroundServices />
+        {children}
+        <Analytics />
+        <SpeedInsights />
+      </body>
+    </html>
+  );
+}
