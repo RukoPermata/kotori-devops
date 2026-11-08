@@ -156,6 +156,8 @@ export default function HomePage() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [language, setLanguage] = useState<"ID" | "EN">("EN");
   const [searchQuery, setSearchQuery] = useState("");
+  const [readingStatusFilter, setReadingStatusFilter] = useState<"all" | "unread" | "reading" | "completed">("all");
+  const [sortOption, setSortOption] = useState<"default"| "title-asc"| "title-desc"| "recently-added"| "recently-read"| "progress">("default");
   const [viewMode, setViewMode] = useState<"shelf" | "grid">("shelf");
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -614,26 +616,130 @@ export default function HomePage() {
     }
   };
 
-  const filteredBooks = books.filter(
+  const searchFilteredBooks = books.filter(
     (b) =>
       b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       b.author.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const filteredBooks = searchFilteredBooks.filter((book) => {
+    const progress = progresses[book.id];
+
+    const isCompleted =
+      progress !== undefined &&
+      book.totalChapters > 0 &&
+      progress.chapterIndex >= book.totalChapters - 1 &&
+      progress.scrollPosition >= 0.95;
+
+    switch (readingStatusFilter) {
+      case "unread":
+        return progress === undefined;
+
+      case "reading":
+        return progress !== undefined && !isCompleted;
+
+      case "completed":
+        return isCompleted;
+
+      case "all":
+      default:
+        return true;
+    }
+  });
+
+  const continueReadingBooks = useMemo(() => {
+    return books
+      .filter((book) => {
+        const progress = progresses[book.id];
+
+        if (!progress) return false;
+
+        const isCompleted =
+          book.totalChapters > 0 &&
+          progress.chapterIndex >= book.totalChapters - 1 &&
+          progress.scrollPosition >= 0.95;
+
+        return !isCompleted;
+      })
+      .sort((a, b) => {
+        const lastReadA = progresses[a.id]?.lastReadAt ?? 0;
+        const lastReadB = progresses[b.id]?.lastReadAt ?? 0;
+
+        return lastReadB - lastReadA;
+      })
+      .slice(0, 5);
+  }, [books, progresses]);
+
   const sortedFilteredBooks = useMemo(() => {
     return [...filteredBooks].sort((a, b) => {
-      const { series: seriesA, volume: volA } = parseSeriesAndVolume(a.title);
-      const { series: seriesB, volume: volB } = parseSeriesAndVolume(b.title);
+      // Series & Volume
+      if (sortOption === "default") {
+        const { series: seriesA, volume: volA } =
+          parseSeriesAndVolume(a.title);
+        const { series: seriesB, volume: volB } =
+          parseSeriesAndVolume(b.title);
 
-      const seriesCompare = seriesA.localeCompare(seriesB, "ja");
-      if (seriesCompare !== 0) return seriesCompare;
+        const seriesCompare = seriesA.localeCompare(seriesB, "ja");
 
-      if (volA === null && volB === null) return b.uploadedAt - a.uploadedAt;
-      if (volA === null) return 1;
-      if (volB === null) return -1;
-      return volA - volB;
+        if (seriesCompare !== 0) return seriesCompare;
+        if (volA === null && volB === null) {
+          return b.uploadedAt - a.uploadedAt;
+        }
+        if (volA === null) return 1;
+        if (volB === null) return -1;
+
+        return volA - volB;
+      }
+
+      // A-Z
+      if (sortOption === "title-asc") {
+        return a.title.localeCompare(b.title, "ja");
+      }
+
+      // Z-A
+      if (sortOption === "title-desc") {
+        return b.title.localeCompare(a.title, "ja");
+      }
+
+      // Recently Added
+      if (sortOption === "recently-added") {
+        return b.uploadedAt - a.uploadedAt;
+      }
+
+      // Recently Read
+      if (sortOption === "recently-read") {
+        const progressA = progresses[a.id];
+        const progressB = progresses[b.id];
+
+        const lastReadA = progressA?.lastReadAt ?? 0;
+        const lastReadB = progressB?.lastReadAt ?? 0;
+
+        return lastReadB - lastReadA;
+      }
+
+      // Reading Progress
+      if (sortOption === "progress") {
+        const progressA = progresses[a.id];
+        const progressB = progresses[b.id];
+
+        const ratioA =
+          progressA && a.totalChapters > 0
+            ? (progressA.chapterIndex + progressA.scrollPosition) /
+            a.totalChapters
+            : 0;
+
+        const ratioB =
+          progressB && b.totalChapters > 0
+            ? (progressB.chapterIndex + progressB.scrollPosition) /
+            b.totalChapters
+            : 0;
+
+        return ratioB - ratioA;
+      }
+
+      return 0;
     });
-  }, [filteredBooks]);
+  }, [filteredBooks, sortOption, progresses]);
 
   const groupedShelves = useMemo(() => {
     if (viewMode === "grid" || searchQuery) return null;
@@ -1657,6 +1763,185 @@ export default function HomePage() {
               <span>{t.addBook}</span>
             </button>
           </div>
+        )}
+
+        {/* Reading Status Filter & Sorting */}
+        {!isLoading && books.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "20px",
+              flexWrap: "wrap",
+            }}
+          >
+            {/* Reading Status Filter */}
+            <select
+              value={readingStatusFilter}
+              onChange={(e) =>
+                setReadingStatusFilter(
+                  e.target.value as
+                  | "all"
+                  | "unread"
+                  | "reading"
+                  | "completed"
+                )
+              }
+              aria-label={
+                language === "ID"
+                  ? "Filter status membaca"
+                  : "Reading status filter"
+              }
+              style={{
+                padding: "10px 14px",
+                borderRadius: "12px",
+                backgroundColor: "var(--kb-surface)",
+                color: "var(--kb-text)",
+                border: "1px solid var(--kb-border)",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              <option value="all">
+                {language === "ID" ? "Semua Buku" : "All Books"}
+              </option>
+
+              <option value="unread">
+                {language === "ID" ? "Belum Dibaca" : "Unread"}
+              </option>
+
+              <option value="reading">
+                {language === "ID" ? "Sedang Dibaca" : "Reading"}
+              </option>
+
+              <option value="completed">
+                {language === "ID" ? "Selesai Dibaca" : "Completed"}
+              </option>
+            </select>
+
+            {/* Sorting Filter */}
+            <select
+              value={sortOption}
+              onChange={(e) =>
+                setSortOption(
+                  e.target.value as
+                  | "default"
+                  | "title-asc"
+                  | "title-desc"
+                  | "recently-added"
+                  | "recently-read"
+                  | "progress"
+                )
+              }
+              aria-label={
+                language === "ID"
+                  ? "Urutkan buku"
+                  : "Sort books"
+              }
+              style={{
+                padding: "10px 14px",
+                borderRadius: "12px",
+                backgroundColor: "var(--kb-surface)",
+                color: "var(--kb-text)",
+                border: "1px solid var(--kb-border)",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              <option value="default">
+                {language === "ID" ? "Urutan Default" : "Default"}
+              </option>
+
+              <option value="title-asc">
+                {language === "ID" ? "Judul (A-Z)" : "Title (A-Z)"}
+              </option>
+
+              <option value="title-desc">
+                {language === "ID" ? "Judul (Z-A)" : "Title (Z-A)"}
+              </option>
+
+              <option value="recently-added">
+                {language === "ID" ? "Baru Ditambahkan" : "Recently Added"}
+              </option>
+
+              <option value="recently-read">
+                {language === "ID" ? "Terakhir Dibaca" : "Recently Read"}
+              </option>
+
+              <option value="progress">
+                {language === "ID" ? "Progress Membaca" : "Reading Progress"}
+              </option>
+            </select>
+          </div>
+        )}
+
+        {/* Continue Reading Section */}
+        {!isLoading && continueReadingBooks.length > 0 && !searchQuery && (
+          <section
+            style={{
+              marginBottom: "36px",
+            }}
+          >
+            <div
+              style={{
+                marginBottom: "20px",
+              }}
+            >
+              <h2
+                style={{
+                  fontSize: "20px",
+                  fontWeight: 800,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {language === "ID" ? "Lanjutkan Membaca" : "Continue Reading"}
+              </h2>
+
+              <p
+                style={{
+                  fontSize: "13px",
+                  color: "var(--kb-text-muted)",
+                  marginTop: "4px",
+                }}
+              >
+                {language === "ID"
+                  ? "Lanjutkan novel yang terakhir kamu baca."
+                  : "Pick up where you left off."}
+              </p>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                gap: "20px",
+                alignItems: "start",
+              }}
+            >
+              {continueReadingBooks.map((book, bookIdx) => (
+                <RevealSection
+                  key={book.id}
+                  className="kb-reveal-scale"
+                  delay={bookIdx * 60}
+                >
+                  <BookCard
+                    book={book}
+                    progress={progresses[book.id]}
+                    onOpen={() => handleBookClick(book)}
+                    onDelete={() => setDeleteConfirm(book.id)}
+                    onResetProgress={() => setResetConfirm(book.id)}
+                    t={t}
+                  />
+                </RevealSection>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Book Grid Area */}

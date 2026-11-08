@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Search, X } from "lucide-react";
+import { Search, X, History, Bookmark, Download, Trash2 } from "lucide-react";
+import { useDictionaryStore } from "@/stores/dictionary-store";
 import { dictionaryService, LookupResult } from "@/services/dictionary-service";
 import { DictionaryResults } from "@/components/DictionaryResults";
 
@@ -25,6 +26,37 @@ export function DictionarySearchModal({ isOpen, onClose, language = "ID" }: Dict
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light" | "sepia">("dark");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchHistory = useDictionaryStore((s) => s.searchHistory);
+  const addHistory = useDictionaryStore((s) => s.addHistory);
+  const removeHistory = useDictionaryStore((s) => s.removeHistory);
+  const clearHistory = useDictionaryStore((s) => s.clearHistory);
+  const vocabularyList = useDictionaryStore((s) => s.vocabularyList);
+  const removeBookmark = useDictionaryStore((s) => s.removeBookmark);
+  const exportCsv = useDictionaryStore((s) => s.exportCsv);
+  const exportAnki = useDictionaryStore((s) => s.exportAnki);
+
+  const handleDownloadFile = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCsv = () => {
+    const csv = exportCsv();
+    handleDownloadFile(csv, `kotori-vocabulary-${Date.now()}.csv`, "text/csv;charset=utf-8;");
+  };
+
+  const handleExportAnki = () => {
+    const anki = exportAnki();
+    handleDownloadFile(anki, `kotori-anki-${Date.now()}.txt`, "text/tab-separated-values;charset=utf-8;");
+  };
+
 
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -62,13 +94,16 @@ export function DictionarySearchModal({ isOpen, onClose, language = "ID" }: Dict
       dictionaryService.lookup(trimmed).then((res) => {
         setLookupData(res);
         setIsLoading(false);
+        if (res.terms && res.terms.length > 0) {
+          addHistory(trimmed);
+        }
       });
     }, DEBOUNCE_MS);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, addHistory]);
 
   return (
     <div
@@ -187,22 +222,160 @@ export function DictionarySearchModal({ isOpen, onClose, language = "ID" }: Dict
             />
           </div>
         ) : (
-          <div
-            style={{
-              minHeight: "180px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              textAlign: "center",
-              padding: "24px",
-              borderRadius: "16px",
-              backgroundColor: "var(--kb-bg-secondary)",
-              border: "1px dashed var(--kb-border)",
-              color: "var(--kb-text-muted)",
-              fontSize: "13px",
-            }}
-          >
-            {language === "ID" ? "Mulai ketik untuk mencari kata..." : "Start typing to search a word..."}
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxHeight: "55vh", overflowY: "auto" }}>
+            {/* Search History Section */}
+            {searchHistory.length > 0 && (
+              <div style={{ backgroundColor: "var(--kb-bg-secondary)", borderRadius: "14px", padding: "12px 14px", border: "1px solid var(--kb-border)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: 700, color: "var(--kb-text-secondary)" }}>
+                    <History style={{ width: "13px", height: "13px" }} />
+                    {language === "ID" ? "Riwayat Pencarian" : "Recent Searches"}
+                  </div>
+                  <button
+                    onClick={clearHistory}
+                    title={language === "ID" ? "Hapus riwayat" : "Clear history"}
+                    style={{ background: "none", border: "none", color: "var(--kb-text-muted)", fontSize: "11px", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}
+                  >
+                    <Trash2 style={{ width: "11px", height: "11px" }} />
+                    {language === "ID" ? "Bersihkan" : "Clear"}
+                  </button>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {searchHistory.slice(0, 10).map((item) => (
+                    <div
+                      key={item.query}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        backgroundColor: "var(--kb-bg)",
+                        padding: "4px 8px 4px 10px",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        border: "1px solid var(--kb-border)",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => setQuery(item.query)}
+                    >
+                      <span style={{ color: "var(--kb-text)" }}>{item.query}</span>
+                      {item.count > 1 && (
+                        <span style={{ fontSize: "10px", color: "var(--kb-text-muted)", backgroundColor: "var(--kb-bg-secondary)", padding: "1px 4px", borderRadius: "4px" }}>
+                          {item.count}
+                        </span>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeHistory(item.query);
+                        }}
+                        style={{ background: "none", border: "none", padding: "0 2px", color: "var(--kb-text-muted)", cursor: "pointer", display: "flex", alignItems: "center" }}
+                      >
+                        <X style={{ width: "10px", height: "10px" }} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Saved Vocabulary Section */}
+            <div style={{ backgroundColor: "var(--kb-bg-secondary)", borderRadius: "14px", padding: "12px 14px", border: "1px solid var(--kb-border)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: 700, color: "var(--kb-text-secondary)" }}>
+                  <Bookmark style={{ width: "13px", height: "13px" }} />
+                  {language === "ID" ? "Kosakata Tersimpan" : "Saved Vocabulary"} ({vocabularyList.length})
+                </div>
+                {vocabularyList.length > 0 && (
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      onClick={handleExportCsv}
+                      title="Export CSV (RFC 4180)"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        borderRadius: "6px",
+                        backgroundColor: "var(--kb-bg)",
+                        border: "1px solid var(--kb-border)",
+                        color: "var(--kb-text)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Download style={{ width: "11px", height: "11px" }} />
+                      CSV
+                    </button>
+                    <button
+                      onClick={handleExportAnki}
+                      title="Export Anki TSV"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        borderRadius: "6px",
+                        backgroundColor: "var(--kb-bg)",
+                        border: "1px solid var(--kb-border)",
+                        color: "var(--kb-text)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Download style={{ width: "11px", height: "11px" }} />
+                      Anki
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {vocabularyList.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "200px", overflowY: "auto" }}>
+                  {vocabularyList.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "6px 8px",
+                        borderRadius: "8px",
+                        backgroundColor: "var(--kb-bg)",
+                        border: "1px solid var(--kb-border)",
+                        fontSize: "12px",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => setQuery(item.expression)}
+                    >
+                      <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                        <span style={{ fontWeight: 700, color: "var(--kb-text)" }}>{item.expression}</span>
+                        <span style={{ fontSize: "11px", color: "var(--kb-text-secondary)" }}>{item.reading}</span>
+                        {item.jlpt && (
+                          <span style={{ fontSize: "10px", padding: "1px 4px", borderRadius: "4px", backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }}>
+                            {item.jlpt}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeBookmark(item.id);
+                        }}
+                        style={{ background: "none", border: "none", color: "var(--kb-text-muted)", cursor: "pointer", display: "flex", alignItems: "center" }}
+                      >
+                        <Trash2 style={{ width: "12px", height: "12px" }} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", padding: "16px 0", color: "var(--kb-text-muted)", fontSize: "12px" }}>
+                  {language === "ID"
+                    ? "Belum ada kosakata yang disimpan. Klik ikon bookmark pada hasil kamus untuk menyimpan."
+                    : "No saved vocabulary yet. Click the bookmark icon on lookup results to save words."}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
