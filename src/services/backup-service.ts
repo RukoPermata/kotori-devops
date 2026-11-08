@@ -1,23 +1,12 @@
-import {
-  getAllBooks,
-  getAllChapters,
-  getChapters,
-  getAllProgress,
-  getSettings,
-  restoreLibrary,
-} from "./book-storage";
 import DOMPurify from "dompurify";
-import { CURRENT_VERSION } from "@/data/changelog";
-import type { BookMeta, Chapter, ReadingProgress, ReaderSettings } from "@/types/book";
+import { CURRENT_VERSION } from "../data/changelog.ts";
+import type { BookMeta, Chapter, ReadingProgress, ReaderSettings } from "../types/book.ts";
+import {
+  validateBackupRelations,
+  type BackupMetadata,
+} from "./backup-validation.ts";
 
-export interface BackupMetadata {
-  appName: string;
-  version: string;
-  exportedAt: string;
-  totalBooks: number;
-  totalChapters: number;
-  totalProgress: number;
-}
+export type { BackupMetadata };
 
 export interface BackupInspectionResult {
   isValid: boolean;
@@ -41,8 +30,15 @@ export async function exportFullBackup(
   selectedBookIds?: string[],
   onProgress?: (percent: number) => void
 ): Promise<{ fileName: string; totalBooks: number }> {
-  // Dynamically import JSZip so it doesn't inflate the initial landing page bundle
+  // Dynamically import JSZip and book-storage so it doesn't inflate the initial landing page bundle
   const JSZip = (await import("jszip")).default;
+  const {
+    getAllBooks,
+    getAllChapters,
+    getChapters,
+    getAllProgress,
+    getSettings,
+  } = await import("./book-storage.ts");
   const zip = new JSZip();
   const [allBooks, allProgress, settings] = await Promise.all([
     getAllBooks(),
@@ -128,7 +124,8 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
 
   // 1. Try treating as .kotori / ZIP archive
   try {
-    const zip = await JSZip.loadAsync(file);
+    const fileData = typeof file.arrayBuffer === "function" ? await file.arrayBuffer() : file;
+    const zip = await JSZip.loadAsync(fileData);
 
     const metaFile = zip.file("kotori-metadata.json");
     const booksFile = zip.file("books.json");
@@ -166,6 +163,23 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
       metadata = JSON.parse(metaText) as BackupMetadata;
     }
 
+    const validation = validateBackupRelations({
+      books,
+      chapters,
+      progress,
+      metadata,
+    });
+
+    if (!validation.isValid) {
+      return {
+        isValid: false,
+        books: [],
+        chapters: [],
+        progress: [],
+        error: validation.error,
+      };
+    }
+
     return {
       isValid: true,
       metadata,
@@ -182,12 +196,34 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
       const parsed = JSON.parse(text);
 
       if (Array.isArray(parsed.books)) {
+        const books = (parsed.books || []) as BookMeta[];
+        const chapters = (parsed.chapters || []) as Chapter[];
+        const progress = (parsed.progress || []) as ReadingProgress[];
+        const metadata = parsed.metadata as BackupMetadata | undefined;
+
+        const validation = validateBackupRelations({
+          books,
+          chapters,
+          progress,
+          metadata,
+        });
+
+        if (!validation.isValid) {
+          return {
+            isValid: false,
+            books: [],
+            chapters: [],
+            progress: [],
+            error: validation.error,
+          };
+        }
+
         return {
           isValid: true,
           metadata: parsed.metadata,
-          books: parsed.books || [],
-          chapters: parsed.chapters || [],
-          progress: parsed.progress || [],
+          books,
+          chapters,
+          progress,
           settings: parsed.settings?.reader,
           preferences: parsed.settings?.app,
         };
@@ -219,7 +255,18 @@ export async function applyBackupRestore(
   }
 ): Promise<{ restoredBooks: number }> {
   if (!data.isValid || !data.books.length) {
-    throw new Error("Data backup tidak valid untuk dipulihkan.");
+    throw new Error(data.error || "Data backup tidak valid untuk dipulihkan.");
+  }
+
+  const validation = validateBackupRelations({
+    books: data.books,
+    chapters: data.chapters,
+    progress: data.progress,
+    metadata: data.metadata,
+  });
+
+  if (!validation.isValid) {
+    throw new Error(validation.error || "Data backup tidak valid untuk dipulihkan.");
   }
 
   const selectedSet =
@@ -287,6 +334,7 @@ export async function applyBackupRestore(
     }),
   }));
 
+  const { restoreLibrary } = await import("./book-storage.ts");
   await restoreLibrary({
     books: booksToRestore,
     chapters: sanitizedChapters,
