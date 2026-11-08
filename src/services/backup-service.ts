@@ -1,13 +1,7 @@
-import {
-  getAllBooks,
-  getAllChapters,
-  getChapters,
-  getAllProgress,
-  getSettings,
-  restoreLibrary,
-} from "./book-storage";
+
 import DOMPurify from "dompurify";
-import { CURRENT_VERSION } from "@/data/changelog";
+import { CURRENT_VERSION } from "../data/changelog.ts";
+import { validateStructure } from "./backup-validation.ts";
 import type { BookMeta, Chapter, ReadingProgress, ReaderSettings } from "@/types/book";
 
 export interface BackupMetadata {
@@ -41,6 +35,13 @@ export async function exportFullBackup(
   selectedBookIds?: string[],
   onProgress?: (percent: number) => void
 ): Promise<{ fileName: string; totalBooks: number }> {
+  const {
+    getAllBooks,
+    getAllChapters,
+    getChapters,
+    getAllProgress,
+    getSettings,
+  } = await import("./book-storage");
   // Dynamically import JSZip so it doesn't inflate the initial landing page bundle
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
@@ -128,7 +129,11 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
 
   // 1. Try treating as .kotori / ZIP archive
   try {
-    const zip = await JSZip.loadAsync(file);
+    let zipData: any = file;
+    if (typeof file.arrayBuffer === "function") {
+      zipData = await file.arrayBuffer();
+    }
+    const zip = await JSZip.loadAsync(zipData);
 
     const metaFile = zip.file("kotori-metadata.json");
     const booksFile = zip.file("books.json");
@@ -166,6 +171,24 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
       metadata = JSON.parse(metaText) as BackupMetadata;
     }
 
+        const validation = validateStructure({
+      books,
+      chapters,
+      progress,
+      settings,
+      metadata,
+    });
+
+    if (!validation.isValid) {
+      return {
+        isValid: false,
+        books: [],
+        chapters: [],
+        progress: [],
+        error: validation.error,
+      };
+    }
+
     return {
       isValid: true,
       metadata,
@@ -175,13 +198,31 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
       settings,
       preferences,
     };
-  } catch (zipErr) {
+  } catch (zipErr) { 
     // 2. Fallback: Check if user uploaded a raw .json backup file
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
 
-      if (Array.isArray(parsed.books)) {
+      if (parsed && typeof parsed === "object" && Array.isArray(parsed.books)) {
+        const validation = validateStructure({
+          books: parsed.books || [],
+          chapters: parsed.chapters || [],
+          progress: parsed.progress,
+          settings: parsed.settings?.reader,
+          metadata: parsed.metadata,
+        });
+
+        if (!validation.isValid) {
+          return {
+            isValid: false,
+            books: [],
+            chapters: [],
+            progress: [],
+            error: validation.error,
+          };
+        }
+
         return {
           isValid: true,
           metadata: parsed.metadata,
@@ -192,7 +233,7 @@ export async function inspectBackupFile(file: File): Promise<BackupInspectionRes
           preferences: parsed.settings?.app,
         };
       }
-    } catch {
+    } catch (jsonErr) { 
       // not a JSON either
     }
 
@@ -287,6 +328,7 @@ export async function applyBackupRestore(
     }),
   }));
 
+  const { restoreLibrary } = await import("./book-storage");
   await restoreLibrary({
     books: booksToRestore,
     chapters: sanitizedChapters,
