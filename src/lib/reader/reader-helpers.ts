@@ -2,6 +2,8 @@
  * Reader DOM, Range, and Text helper utilities.
  */
 
+import { countReadableChars } from "../text/html-text.ts";
+
 export function adjustReaderFontSize(fontSize: number, delta: number): number {
   return Math.max(12, Math.min(36, fontSize + delta));
 }
@@ -168,8 +170,5 @@ export function usesNegativeScrollLeft(el: HTMLElement): boolean {
 }
 
 export function getPlainTextLength(html: string): number {
-  if (typeof document === "undefined") return 0;
-  const el = document.createElement("div");
-  el.innerHTML = html;
-  return (el.textContent || "").length;
+  return countReadableChars(html);
 }
